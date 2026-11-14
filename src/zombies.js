@@ -128,6 +128,7 @@ class Zombie {
     this.state = 'chase';
     this.stateT = 0;
     this.damageDealt = false;
+    this.attackCooldown = 0; // seconds before this zombie may swing again
     this.flash = 0;
     this.deathT = 0;
 
@@ -168,6 +169,20 @@ class Zombie {
     this.hitbox.userData.zombie = this;
     this.scene.add(this.hitbox);
     this.manager.registerHitMesh(this.hitbox);
+
+    // HEALTH BAR: small sprite above the head, green -> yellow -> red.
+    // Canvas texture redrawn only when HP changes (cheap).
+    this._hpCanvas = document.createElement('canvas');
+    this._hpCanvas.width = 64; this._hpCanvas.height = 8;
+    this._hpCtx = this._hpCanvas.getContext('2d');
+    this._hpTex = new THREE.CanvasTexture(this._hpCanvas);
+    this._hpMat = new THREE.SpriteMaterial({ map: this._hpTex, transparent: true, depthWrite: false });
+    this._hpSprite = new THREE.Sprite(this._hpMat);
+    this._hpSprite.scale.set(0.9, 0.1125, 1);
+    this._hpSprite.position.set(0, 2.15, 0);
+    this.scene.add(this._hpSprite);
+    this._drawHpBar();
+
     manager.scene.add(this.scene);
 
     // Animation mixer on the clone; clips are the FBX-loaded clips shared
@@ -233,12 +248,15 @@ class Zombie {
   takeDamage(amount, isLegHit, legAmount) {
     if (!this.alive || this.state === 'dying') return;
     this.hp -= amount;
-    this.flash = 0.25;
+    this._drawHpBar();
+    this.flash = 0.3;
     this.setFlash(true);
     if (this.hp <= 0) {
       this.state = 'dying';
       this.deathT = 1.4;
+      this._hpSprite.visible = false; // hide the health bar on death
       this.playOnce(this.cfg.death, 0.08);
+      if (window.soundEngine && window.soundEngine.playZombieDeath) window.soundEngine.playZombieDeath();
       this.manager.onZombieKilled(this);
       return;
     }
@@ -267,6 +285,19 @@ class Zombie {
     this.playClip(this.cfg.hit, 0.06);
   }
 
+  // Redraw the health bar sprite. Green > 50%, yellow 25-50%, red < 25%.
+  _drawHpBar() {
+    const ctx = this._hpCtx;
+    const w = this._hpCanvas.width, h = this._hpCanvas.height;
+    const frac = Math.max(0, this.hp / this.maxHp);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = frac > 0.5 ? '#39d353' : (frac > 0.25 ? '#e3b341' : '#f85149');
+    ctx.fillRect(1, 1, (w - 2) * frac, h - 2);
+    this._hpTex.needsUpdate = true;
+  }
+
   setFlash(on) {
     this.scene.traverse((o) => {
       if (!o.isMesh || !o.material) return;
@@ -275,7 +306,7 @@ class Zombie {
         if (!m.emissive) continue;
         if (on) {
           m.emissive.setHex(0xff2222);
-          m.emissiveIntensity = 1.0;
+          m.emissiveIntensity = 1.6;
         } else {
           m.emissive.setHex(0x000000);
           m.emissiveIntensity = 1.0;
@@ -288,6 +319,16 @@ class Zombie {
     if (!this.alive) return false;
     this.mixer.update(dt);
 
+    // ROOT-TILT FIX: the walk clip rotates the character root for the
+    // prisoner/zombiegirl rigs (measured ~0.75 rad / 43 deg pitch). The
+    // mixer can re-tilt it every frame, so force x/z back to 0 here in
+    // every state — yaw is set below when chasing. Zombie stays upright.
+    this.scene.rotation.x = 0;
+    this.scene.rotation.z = 0;
+
+    // Attack cooldown ticks down so swings have a readable gap.
+    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+
     // Hit flash decay
     if (this.flash > 0) {
       this.flash -= dt;
@@ -296,6 +337,16 @@ class Zombie {
 
     if (this.state === 'dying') {
       this.deathT -= dt;
+      // Fade the corpse out over the last 0.5s so it doesn't pop away.
+      if (this.deathT < 0.5) {
+        const op = Math.max(0, this.deathT / 0.5);
+        this.scene.traverse((o) => {
+          if (o.isMesh && o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) { m.transparent = true; m.opacity = op; }
+          }
+        });
+      }
       if (this.deathT <= 0) {
         this.alive = false;
         this.manager.scene.remove(this.scene);
@@ -330,16 +381,23 @@ class Zombie {
 
     if (this.state === 'attack') {
       this.stateT -= dt;
-      // Damage lands mid-windup if the player is still in range
+      // Damage lands mid-windup ONLY if the swing really connects: the
+      // player must still be in range AND in front of the zombie (facing
+      // check), so dodging behind it or sprinting past avoids the hit.
       if (!this.damageDealt && this.stateT <= this.cfg.attackDur - this.cfg.attackWindup) {
         this.damageDealt = true;
         const d = this.scene.position.distanceTo(player.position);
-        if (d <= this.cfg.range + 0.4) {
+        const fx = Math.sin(this.scene.rotation.y), fz = Math.cos(this.scene.rotation.y);
+        const tx = (player.position.x - this.scene.position.x) / Math.max(d, 0.001);
+        const tz = (player.position.z - this.scene.position.z) / Math.max(d, 0.001);
+        const facing = fx * tx + fz * tz; // 1 = dead ahead, 0 = side, -1 = behind
+        if (d <= this.cfg.range + 0.2 && facing > 0.3) {
           this.manager.damagePlayer(this.cfg.dmg);
         }
       }
       if (this.stateT <= 0) {
         this.state = 'chase';
+        this.attackCooldown = 1.0; // a beat before the next swing
         this.playClip(this.chaseClip(), 0.12);
       }
       return true;
@@ -352,8 +410,9 @@ class Zombie {
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist > 0.001) {
       this._tmpDir.set(dx / dist, 0, dz / dist);
-      // Face the player (model faces +Z at rotation 0)
-      this.scene.rotation.y = Math.atan2(dx, dz);
+      // Face the player (model faces +Z at rotation 0). rotation.set
+      // keeps x/z at 0 so the root-tilt bug can never return.
+      this.scene.rotation.set(0, Math.atan2(dx, dz), 0);
       this._tmpVel.copy(this._tmpDir).multiplyScalar(this.speedNow());
       this.scene.position.addScaledVector(this._tmpVel, dt);
       // Slide along walls/barriers (mutates position + velocity)
@@ -375,12 +434,13 @@ class Zombie {
       }
     }
 
-    // In attack range -> start the attack
-    if (dist <= this.cfg.range) {
+    // In attack range -> start the attack (only when the cooldown has expired)
+    if (dist <= this.cfg.range && this.attackCooldown <= 0) {
       this.state = 'attack';
       this.stateT = this.cfg.attackDur;
       this.damageDealt = false;
       this.playClip(this.cfg.attack, 0.08);
+      if (window.soundEngine && window.soundEngine.playZombieAttack) window.soundEngine.playZombieAttack();
     }
     return true;
   }
@@ -445,6 +505,20 @@ class ZombieManager {
           const bb2 = new THREE.Box3().setFromObject(fbxObj);
           fbxObj.position.y -= bb2.min.y;
         }
+        // MATTE FIX: FBXLoader makes MeshPhongMaterial whose specular
+        // highlight reads as polished gold under the warm night lights.
+        // Kill the shine so skin/cloth read as matte, not metal.
+        fbxObj.traverse((o) => {
+          if (o.isMesh && o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              if (m.isMeshPhongMaterial) {
+                if (m.specular) m.specular.setHex(0x000000);
+                m.shininess = 0;
+              }
+            }
+          }
+        });
         this.templates[key] = fbxObj;
         doneOne();
       }, undefined, (err) => {
@@ -458,10 +532,22 @@ class ZombieManager {
         if (fbxObj.animations && fbxObj.animations.length > 0) {
           const clip = fbxObj.animations[0].clone();
           clip.name = name;
-          // Strip ALL .position tracks (like Leon): the game moves the
-          // zombie, and Mixamo root/bone translations are in cm and would
-          // sink or fling the character. Rotations alone drive the pose.
-          clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.position'));
+          // Position tracks: the game moves the zombie, and Mixamo bone
+          // translations are in cm and would sink/fling the character.
+          // EXCEPTION — the Hips Y (vertical bob): without it the feet
+          // never plant and the walk reads as floating. Keep Hips Y,
+          // freeze Hips X/Z at their rest values (no forward drift).
+          clip.tracks = clip.tracks.filter((t) => {
+            if (!t.name.endsWith('.position')) return true;
+            const node = t.name.slice(0, -'.position'.length);
+            if (node === 'mixamorigHips' || node === 'mixamorig:Hips') {
+              const v = t.values;
+              const x0 = v[0], z0 = v[2];
+              for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; }
+              return true;
+            }
+            return false; // drop every other bone's .position track
+          });
           this.clips[name] = clip;
         } else {
           console.warn('[Zombies] No animation in', ZOMBIE_CLIPS[name]);
@@ -540,6 +626,11 @@ class ZombieManager {
     const p = this.player;
     p.hp = Math.max(0, p.hp - dmg);
     if (p.updateHUD) p.updateHUD();
+    // Feedback: red vignette + Leon hit reaction so the player can SEE
+    // and FEEL that a real hit landed (not just proximity drain).
+    if (window.showDamageVignette) window.showDamageVignette();
+    if (p && p.playHitReaction) p.playHitReaction();
+    if (window.soundEngine && window.soundEngine.playHurt) window.soundEngine.playHurt();
     if (p.hp <= 0 && !this.gameOver) {
       this.gameOver = true;
       if (this.game && this.game.onPlayerDeath) this.game.onPlayerDeath();
@@ -591,6 +682,23 @@ class ZombieManager {
         // Remove its meshes from the raycast list
         this.hitMeshes = this.hitMeshes.filter((m) => m.userData.zombie !== z);
         this.zombies.splice(i, 1);
+      }
+    }
+
+    // Proximity groans: every few seconds the NEAREST zombie groans, and
+    // the closer it is, the louder it gets — so the player hears the horde
+    // closing in. (Volume 1 at 2m, fading to 0 past ~20m.)
+    this._groanTimer = (this._groanTimer === undefined ? 2.0 : this._groanTimer) - dt;
+    if (this._groanTimer <= 0) {
+      this._groanTimer = 2.5 + Math.random() * 1.5;
+      let nearest = null, nearestD = Infinity;
+      for (const z of this.zombies) {
+        if (!z.alive || z.state === 'dying') continue;
+        const d = z.scene.position.distanceTo(this.player.position);
+        if (d < nearestD) { nearestD = d; nearest = z; }
+      }
+      if (nearest && window.soundEngine && window.soundEngine.playGroan) {
+        window.soundEngine.playGroan(Math.max(0, 1 - (nearestD - 2) / 18));
       }
     }
 

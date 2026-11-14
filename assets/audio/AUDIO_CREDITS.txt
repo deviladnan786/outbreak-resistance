@@ -1,0 +1,28 @@
+OUTBREAK: RESISTANCE — audio credits
+=====================================
+All sounds are real recorded effects (no synth beeps). Converted to mono
+44.1 kHz MP3 (96 kbps) with ffmpeg, trimmed of leading/trailing silence and
+level-matched. Total: ~0.7 MB.
+
+CC-BY 3.0 sounds (Creative Commons Attribution 3.0 — free for commercial use,
+attribution required; credit line for the game: "Sound effects by Mike Koenig
+and Kibblesbob via SoundBible.com, CC-BY 3.0"):
+- zombie_groan2.mp3  — "Mummy Zombie" by Mike Koenig, SoundBible.com
+- zombie_groan3.mp3  — "Mindless Zombie Awakening" by Mike Koenig, SoundBible.com
+- zombie_attack.mp3  — "Bite" by Mike Koenig, SoundBible.com
+- player_hurt.mp3    — "Groan And Grunt" by SoundBible.com (author: Mike Koenig)
+- gunshot.mp3        — "M4A1 Single" by Kibblesbob, SoundBible.com
+- hit_tick.mp3       — "Button Click" by SoundBible.com (author: Mike Koenig)
+- zombie_death.mp3   — "Zombie In Pain" by Mike Koenig, SoundBible.com
+- ambient_drone.mp3  — "Horror Ambiance" by Mike Koenig, SoundBible.com
+                       (looped 2x with crossfade, ~38 s, fades for seamless looping)
+- zombie_horde.mp3   — "Enraged Zombies" by Mike Koenig, SoundBible.com (bonus)
+- melee_punch.mp3    — "Boxing Punches" by SoundBible.com (author: Mike Koenig) (bonus)
+
+Public domain (no attribution required):
+- zombie_groan1.mp3  — "Zombie Moan" by gregoryweir, via Wikimedia Commons
+                       (released into the public domain by its author)
+
+Sources: https://soundbible.com/ (per-sound license shown on each sound's page)
+         https://commons.wikimedia.org/wiki/File:Zombie_moan.ogg
+Downloaded 2026-11-15. No accounts created, nothing paid.

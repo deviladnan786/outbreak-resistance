@@ -30,6 +30,12 @@ class OutbreakGame {
     this.cameraYaw = 0;
     this.cameraPitch = 0.05;
 
+    // Trauma-based camera shake (game-feel). addTrauma() raises it;
+    // applyCameraShake() decays it and offsets the camera after it is
+    // positioned each frame, so it never desyncs aim or collision.
+    this.trauma = 0;
+    this._shakeT = 0;
+
     // Top-down camera parameters
     this.camBaseHeight = 18.0;
     this.camBaseOffsetZ = 13.5;
@@ -503,6 +509,23 @@ class OutbreakGame {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  // Trauma-based camera shake (game-feel): shake = trauma^2, summed sines
+  // (smooth, never a per-frame random buzz), decays in real time so it
+  // never freezes off-centre. Called AFTER the camera is positioned.
+  addTrauma(amount) {
+    this.trauma = Math.min(1, (this.trauma || 0) + amount);
+  }
+  applyCameraShake(realDt) {
+    if (!this.trauma || this.trauma <= 0) return;
+    this.trauma = Math.max(0, this.trauma - 1.2 * realDt);
+    const s = this.trauma * this.trauma;
+    this._shakeT = (this._shakeT || 0) + realDt * 30;
+    const t = this._shakeT;
+    this.camera.position.x += 0.25 * s * Math.sin(t * 1.7);
+    this.camera.position.y += 0.18 * s * Math.sin(t * 2.3);
+    this.camera.rotation.z += 0.02 * s * Math.sin(t * 1.1);
+  }
+
   animate() {
     requestAnimationFrame(() => this.animate());
 
@@ -517,6 +540,7 @@ class OutbreakGame {
       if (this.zombieManager) this.zombieManager.update(delta);
       this.environment.update(delta, time);
       this.updateCamera(rawDelta); // Keep camera smooth even during bullet time
+      this.applyCameraShake(rawDelta);
       this.updateMissionTimer(rawDelta);
     }
 
@@ -524,6 +548,26 @@ class OutbreakGame {
     this.renderer.render(this.scene, this.camera);
   }
 }
+
+// --- Hit feedback helpers (global so player.js / zombies.js can call them) ---
+// Hit marker: white X on a hit, gold on a headshot, red on a kill.
+window.showHitMarker = function (headshot, isKill) {
+  const el = document.getElementById('hitmarker');
+  if (!el) return;
+  el.classList.toggle('kill', !!isKill);
+  el.classList.toggle('headshot', !!headshot && !isKill);
+  el.classList.remove('show');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('show');
+};
+// Damage vignette: red flash at the screen edges when the player is hit.
+window.showDamageVignette = function () {
+  const el = document.getElementById('damage-vignette');
+  if (!el) return;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+};
 
 window.addEventListener('DOMContentLoaded', () => {
   window.game = new OutbreakGame();

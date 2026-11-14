@@ -167,6 +167,7 @@ class PlayerOperator {
   initRootGroup() {
     this.mesh = new THREE.Group();
     this.scene.add(this.mesh);
+    this.hitFlinchT = 0; // seconds left on the damage flinch lean
 
     // Ground Shadow Decal
     const shadowGeo = new THREE.CircleGeometry(0.55, 16);
@@ -1074,6 +1075,15 @@ class PlayerOperator {
 
     this.activeAction = nextAction;
     this.currentActionName = target;
+  }
+
+  // Hit reaction: called when a zombie's attack actually lands (see
+  // ZombieManager.damagePlayer). Camera trauma shake + a brief backward
+  // lean of the model, so the hit reads on screen and not just in the HP
+  // bar. The flinch decays in update(); the shake decays in game.js.
+  playHitReaction() {
+    this.hitFlinchT = 0.25;
+    if (window.game && window.game.addTrauma) window.game.addTrauma(0.45);
   }
 
   updateSurvivorKinematics(delta, isMoving, input, aimPitch) {
@@ -2118,6 +2128,14 @@ class PlayerOperator {
     }
 
     this.mesh.position.copy(this.position);
+    // Hit flinch: brief backward lean when damaged (set by playHitReaction).
+    // rotation.x is free here (only rotation.y is driven elsewhere), and it
+    // decays to 0 so the model never stays tilted.
+    if (this.hitFlinchT > 0) {
+      this.hitFlinchT -= delta;
+      this.mesh.rotation.x = -0.18 * Math.max(0, this.hitFlinchT / 0.25);
+      if (this.hitFlinchT <= 0) this.mesh.rotation.x = 0;
+    }
     this.shadowMesh.position.set(this.position.x, this.currentGroundY + 0.02, this.position.z);
 
     // Footstep Foley
@@ -2564,6 +2582,7 @@ class PlayerOperator {
             const dmg = headshot ? 68 : 34;
             const bodyDmg = (legHit && !headshot) ? Math.round(dmg * 0.25) : dmg;
             zb.takeDamage(bodyDmg, legHit, dmg);
+            if (window.showHitMarker) window.showHitMarker(headshot, zb.hp <= 0);
             if (window.soundEngine && window.soundEngine.playHit) window.soundEngine.playHit(headshot);
             this.spawnImpactSparks(h.point, 0xffcc44);
           } else {

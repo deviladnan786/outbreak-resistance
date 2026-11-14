@@ -140,6 +140,51 @@ html, body {
   box-shadow: 0 0 10px var(--accent-cyan);
 }
 
+/* Hit marker: white X on a normal hit, red X on a kill. Flashed by JS. */
+#hitmarker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+}
+#hitmarker.show { animation: hm-pop 0.22s ease-out; }
+#hitmarker.kill .hm-line { background: #ff3b30; box-shadow: 0 0 6px #ff3b30; }
+#hitmarker.headshot .hm-line { background: #ffd60a; box-shadow: 0 0 6px #ffd60a; }
+.hm-line {
+  position: absolute;
+  width: 2px;
+  height: 9px;
+  background: #fff;
+  box-shadow: 0 0 6px #fff;
+}
+.hm-line.tl { top: 0; left: 2px; transform: rotate(-45deg); transform-origin: top left; }
+.hm-line.tr { top: 0; right: 2px; transform: rotate(45deg); transform-origin: top right; }
+.hm-line.bl { bottom: 0; left: 2px; transform: rotate(45deg); transform-origin: bottom left; }
+.hm-line.br { bottom: 0; right: 2px; transform: rotate(-45deg); transform-origin: bottom right; }
+@keyframes hm-pop {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1.35); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+}
+
+/* Damage vignette: red flash at the screen edges when the player is hit. */
+#damage-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9000;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 0, 0, 0.55) 100%);
+}
+#damage-vignette.show { animation: dmg-flash 0.55s ease-out; }
+@keyframes dmg-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* ==========================================================================
    SCOPE VIGNETTE & ADS OVERLAY
    ========================================================================== */

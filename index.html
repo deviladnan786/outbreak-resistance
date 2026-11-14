@@ -34,7 +34,15 @@
     <div class="crosshair-bracket bottom"></div>
     <div class="crosshair-bracket left"></div>
     <div class="crosshair-bracket right"></div>
+    <!-- Hit marker: flashes an X on the crosshair when a bullet lands -->
+    <div id="hitmarker">
+      <span class="hm-line tl"></span><span class="hm-line tr"></span>
+      <span class="hm-line bl"></span><span class="hm-line br"></span>
+    </div>
   </div>
+
+  <!-- Damage vignette: red flash at the screen edges when the player is hit -->
+  <div id="damage-vignette"></div>
 
   <!-- ADS / Scope Overlay (Cinematic GTA/PUBG Over-The-Shoulder Vignette) -->
   <div id="scope-overlay" class="hidden">

@@ -1,12 +1,32 @@
 /**
- * Procedural Audio Engine (Web Audio API)
- * Zero external asset dependencies - generates crisp, real-time tactical sound effects.
+ * Audio Engine (Web Audio API) — REAL recorded sounds + procedural fallback.
+ * Real MP3 samples live in assets/audio/ (SoundBible CC-BY 3.0 + one public
+ * domain groan; see assets/audio/AUDIO_CREDITS.txt). Samples are fetched
+ * and decoded into buffers on first user interaction (autoplay policy).
+ * If a sample fails to load, the method falls back to the old synth so the
+ * game never goes silent.
  */
+const AUDIO_SAMPLES = {
+  gunshot: 'assets/audio/gunshot.mp3',
+  hitTick: 'assets/audio/hit_tick.mp3',
+  hurt: 'assets/audio/player_hurt.mp3',
+  zombieAttack: 'assets/audio/zombie_attack.mp3',
+  zombieDeath: 'assets/audio/zombie_death.mp3',
+  groan1: 'assets/audio/zombie_groan1.mp3',
+  groan2: 'assets/audio/zombie_groan2.mp3',
+  groan3: 'assets/audio/zombie_groan3.mp3',
+  punch: 'assets/audio/melee_punch.mp3',
+  ambient: 'assets/audio/ambient_drone.mp3'
+};
+
 class SoundEngine {
   constructor() {
     this.ctx = null;
     this.enabled = true;
     this.masterGain = null;
+    this.buffers = {}; // name -> AudioBuffer (decoded real samples)
+    this._ambientStarted = false;
+    this._groanNames = ['groan1', 'groan2', 'groan3'];
     this.initOnInteraction();
   }
 
@@ -18,6 +38,8 @@ class SoundEngine {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
         this.masterGain.connect(this.ctx.destination);
+        this.loadSamples();
+        this.startAmbient();
       }
       if (this.ctx.state === 'suspended') {
         this.ctx.resume();
@@ -28,6 +50,90 @@ class SoundEngine {
 
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+  }
+
+  // Fetch + decode every real sample. Failures are silent (synth fallback).
+  loadSamples() {
+    for (const [name, url] of Object.entries(AUDIO_SAMPLES)) {
+      fetch(url)
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then((buf) => this.ctx.decodeAudioData(buf))
+        .then((audioBuf) => { this.buffers[name] = audioBuf; })
+        .catch(() => { /* keep synth fallback */ });
+    }
+  }
+
+  // Play a decoded real sample through the master gain. Returns true if played.
+  playSample(name, volume = 1) {
+    if (!this.ctx || !this.enabled) return false;
+    const buf = this.buffers[name];
+    if (!buf) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(Math.max(0, Math.min(1, volume)), this.ctx.currentTime);
+    src.connect(g);
+    g.connect(this.masterGain);
+    src.start();
+    return true;
+  }
+
+  // Dark horror ambient drone, looped quietly underneath everything.
+  startAmbient() {
+    if (this._ambientStarted || !this.ctx) return;
+    this._ambientStarted = true;
+    const tryStart = () => {
+      const buf = this.buffers['ambient'];
+      if (!buf) { setTimeout(tryStart, 500); return; }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.22, this.ctx.currentTime);
+      src.connect(g);
+      g.connect(this.masterGain);
+      src.start();
+    };
+    tryStart();
+  }
+
+  // A zombie groan from the nearest zombie; volume scales with closeness
+  // (1 = right next to the player, 0 = too far to hear). Picks a random
+  // groan variant so it doesn't repeat the same file every time.
+  playGroan(volume) {
+    if (!this.ctx || !this.enabled) return;
+    const v = Math.max(0, Math.min(1, volume));
+    if (v < 0.05) return;
+    const name = this._groanNames[Math.floor(Math.random() * this._groanNames.length)];
+    this.playSample(name, v * 0.9);
+  }
+
+  // Player hurt grunt (real recording) when a zombie's attack lands.
+  playHurt() {
+    if (!this.playSample('hurt', 0.9)) {
+      // synth fallback: low pained thud
+      if (!this.ctx || !this.enabled) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(160, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.2);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      osc.connect(gain); gain.connect(this.masterGain);
+      osc.start(now); osc.stop(now + 0.25);
+    }
+  }
+
+  // Zombie attack snarl when a zombie starts its swing.
+  playZombieAttack() {
+    this.playSample('zombieAttack', 0.8);
+  }
+
+  // Zombie death groan when a zombie is killed.
+  playZombieDeath() {
+    this.playSample('zombieDeath', 0.85);
   }
 
   playFootstep(isSprint = false) {
@@ -147,9 +253,18 @@ class SoundEngine {
     osc.stop(this.ctx.currentTime + 0.1);
   }
 
+  // Gunshot: real M4A1 recording. (The game calls playShoot(); playGunfire
+  // is the old name — both now play the real sample.)
+  playShoot() {
+    if (this.playSample('gunshot', 0.9)) return;
+    this.playGunfireSynth();
+  }
   playGunfire() {
+    this.playShoot();
+  }
+  playGunfireSynth() {
     if (!this.ctx || !this.enabled) return;
-    // Punchy gunshot noise burst + low-end thud
+    // Punchy gunshot noise burst + low-end thud (synth fallback)
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
     osc.type = 'sawtooth';
@@ -179,9 +294,13 @@ class SoundEngine {
   }
 
   // Realistic Multi-Stage Weapon Reload Foley
-  // Hit marker tick: short high blip; headshot gets a brighter double-tick
+  // Hit marker tick: real click sample; headshot gets a second tick.
   playHit(headshot = false) {
     if (!this.enabled || !this.ctx) return;
+    if (this.playSample('hitTick', 0.9)) {
+      if (headshot) setTimeout(() => this.playSample('hitTick', 0.9), 70);
+      return;
+    }
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -335,9 +454,10 @@ class SoundEngine {
   }
 
   playPunch() {
+    if (this.playSample('punch', 0.9)) return;
     if (!this.ctx || !this.enabled) return;
     const now = this.ctx.currentTime;
-    // Fast boxing whoosh + thud impact
+    // Fast boxing whoosh + thud impact (synth fallback)
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = 'triangle';
