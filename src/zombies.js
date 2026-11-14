@@ -171,24 +171,33 @@ class Zombie {
     // Robust (plain non-skinned mesh), generous, and matches the zombie's
     // body. Headshot test still uses the hit point height (above 1.5m);
     // leg hits are hits below hip height (~0.9m).
+    // SCALE FIX: Mixamo character FBX are in CM, so the template root is
+    // scaled x0.01 — and the hitbox + health bar are children of that root,
+    // so they inherit the 0.01 scale and shrink to 1% (hitbox 4.5mm wide,
+    // bar 9mm wide at 2cm high) — invisible and unhittable. Counter-scale
+    // them by the inverse so their WORLD size is the intended one.
+    const invS = 1 / this.scene.scale.x;
+    this._invScale = invS;
     const hitGeo = new THREE.CylinderGeometry(this.cfg.radius, this.cfg.radius, 1.9, 8);
     const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
     this.hitbox = new THREE.Mesh(hitGeo, hitMat);
-    this.hitbox.position.set(0, 0.95, 0);
+    this.hitbox.scale.set(invS, invS, invS);
+    this.hitbox.position.set(0, 0.95 * invS, 0);
     this.hitbox.userData.zombie = this;
     this.scene.add(this.hitbox);
     this.manager.registerHitMesh(this.hitbox);
 
     // HEALTH BAR: small sprite above the head, green -> yellow -> red.
     // Canvas texture redrawn only when HP changes (cheap).
+    // (Counter-scaled like the hitbox — see SCALE FIX above.)
     this._hpCanvas = document.createElement('canvas');
     this._hpCanvas.width = 64; this._hpCanvas.height = 8;
     this._hpCtx = this._hpCanvas.getContext('2d');
     this._hpTex = new THREE.CanvasTexture(this._hpCanvas);
     this._hpMat = new THREE.SpriteMaterial({ map: this._hpTex, transparent: true, depthWrite: false });
     this._hpSprite = new THREE.Sprite(this._hpMat);
-    this._hpSprite.scale.set(0.9, 0.1125, 1);
-    this._hpSprite.position.set(0, 2.15, 0);
+    this._hpSprite.scale.set(0.9 * invS, 0.1125 * invS, 1);
+    this._hpSprite.position.set(0, 2.15 * invS, 0);
     this.scene.add(this._hpSprite);
     this._drawHpBar();
 
@@ -239,8 +248,9 @@ class Zombie {
     if (this.crawling) return;
     this.crawling = true;
     // Lower + shorten the hitbox so body shots still land on a low target
-    this.hitbox.scale.y = 0.5;
-    this.hitbox.position.y = 0.45;
+    // (counter-scaled — see SCALE FIX in the constructor).
+    this.hitbox.scale.y = 0.5 * this._invScale;
+    this.hitbox.position.y = 0.45 * this._invScale;
     if (this.state === 'chase') this.playClip(this.cfg.crawl, 0.15);
   }
 
