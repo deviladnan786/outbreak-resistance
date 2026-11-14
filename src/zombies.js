@@ -204,6 +204,20 @@ class Zombie {
     this.scene.add(this._hpSprite);
     this._drawHpBar();
 
+    // GROUND RING: a bright flat ring on the floor under the zombie, so its
+    // position is unmistakable from ANY angle — especially top-down, where
+    // a dark zombie on dark asphalt is nearly invisible and only its
+    // health bar shows, which reads as a "floating bar with no zombie".
+    // The ring is a plain (non-skinned) mesh, counter-scaled like the
+    // hitbox/bar. It fades out with the corpse when the zombie dies.
+    const ringGeo = new THREE.RingGeometry(0.45, 0.62, 24);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+    this._groundRing = new THREE.Mesh(ringGeo, ringMat);
+    this._groundRing.rotation.x = -Math.PI / 2;
+    this._groundRing.scale.set(invS, invS, invS);
+    this._groundRing.position.set(0, 0.06 * invS, 0);
+    this.scene.add(this._groundRing);
+
     manager.scene.add(this.scene);
 
     // Animation mixer on the clone; clips are the FBX-loaded clips shared
@@ -277,6 +291,7 @@ class Zombie {
       this.state = 'dying';
       this.deathT = 1.4;
       this._hpSprite.visible = false; // hide the health bar on death
+      if (this._groundRing) this._groundRing.visible = false; // hide the ground ring too
       this.playOnce(this.cfg.death, 0.08);
       if (window.soundEngine && window.soundEngine.playZombieDeath) window.soundEngine.playZombieDeath();
       this.manager.onZombieKilled(this);
