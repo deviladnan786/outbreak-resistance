@@ -687,10 +687,18 @@ class ZombieManager {
   }
 
   updateWaveHUD() {
+    const left = this.zombies.filter((z) => z.alive).length + this.toSpawn.length;
+    const wave = Math.max(1, this.wave);
+    // Icon-chip HUD (v3.8): separate number spans; fall back to the legacy
+    // single text if the chips are missing.
+    const setNum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setNum('stat-wave', wave);
+    setNum('stat-left', left);
+    setNum('stat-kills', this.kills);
+    setNum('stat-level', this.level);
     const el = document.getElementById('wave-info');
-    if (el) {
-      const left = this.zombies.filter((z) => z.alive).length + this.toSpawn.length;
-      el.textContent = `WAVE ${Math.max(1, this.wave)} · ${left} LEFT · KILLS ${this.kills} · LV ${this.level}`;
+    if (el && !document.getElementById('stat-wave')) {
+      el.textContent = `WAVE ${wave} · ${left} LEFT · KILLS ${this.kills} · LV ${this.level}`;
     }
   }
 

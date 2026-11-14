@@ -757,3 +757,138 @@ html, body {
   transform: translateY(-1px);
   box-shadow: 0 0 20px rgba(0, 255, 102, 0.7);
 }
+
+/* ==========================================================================
+   MOBILE / TOUCH — PUBG-style responsive layout (v3.8)
+   Icon + number HUD, virtual joystick (left), action buttons (right).
+   Desktop is untouched: #touch-ui is hidden and .touch overrides only apply
+   when JS detects a touch device and adds body.touch.
+   ========================================================================== */
+
+/* Inline SVG icons inside HUD chips */
+.hud-ico { width: 15px; height: 15px; vertical-align: -2px; flex: none; }
+.stat-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0 5px; }
+.stat-chip b { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: #fff; }
+#wave-info { display: flex; align-items: center; justify-content: center; }
+.sector-short { display: none; font-family: var(--font-display); font-size: 13px; font-weight: 700; color: #fff; }
+
+/* Touch UI: hidden on desktop */
+#touch-ui { display: none; }
+#joystick-zone { display: none; }
+#touch-buttons { display: none; }
+
+body.touch { cursor: auto !important; }
+body.touch #game-container,
+body.touch #hud-overlay { height: 100vh; height: 100dvh; }
+
+/* --- Compact icon HUD on touch --- */
+body.touch #hud-overlay { padding: 10px 12px; }
+body.touch .top-hud { gap: 6px; }
+body.touch .sector-badge { padding: 6px 10px; gap: 6px; }
+body.touch .sector-title { display: none; }
+body.touch .sector-short { display: inline; }
+body.touch .mission-timer-box { padding: 6px 10px; }
+body.touch .timer-label { display: none; }
+body.touch #mission-timer { font-size: 16px; letter-spacing: 1px; }
+body.touch #wave-info { padding: 6px 8px; }
+body.touch .stat-chip { margin: 0 3px; }
+body.touch .stat-chip b { font-size: 12px; }
+body.touch .hud-ico { width: 13px; height: 13px; }
+body.touch .camera-mode-box { padding: 6px 10px; }
+body.touch .cam-label { display: none; }
+body.touch #camera-mode-text { font-size: 11px; }
+body.touch .fps-counter { padding: 4px 8px; font-size: 10px; }
+
+/* Vitals: compact, above the joystick, no text labels */
+body.touch .player-vitals-panel {
+  position: fixed; left: 14px; bottom: 168px; width: 190px;
+  padding: 10px 12px; background: rgba(14, 18, 25, 0.6);
+}
+body.touch .vitals-header { display: none; }
+body.touch .vital-bar-group { margin-bottom: 6px; }
+body.touch .bar-label-row span:first-child { display: none; }
+body.touch .bar-label-row { justify-content: flex-end; margin-bottom: 3px; }
+body.touch #hp-text, body.touch #stamina-text { font-size: 11px; }
+body.touch .bar-track { height: 6px; }
+
+/* Weapon: compact, top-right under the top bar, icon + ammo only */
+body.touch .weapon-hud-panel {
+  position: fixed; right: 14px; top: 58px; bottom: auto; width: auto;
+  padding: 8px 12px; background: rgba(14, 18, 25, 0.6); text-align: right;
+}
+body.touch .weapon-name, body.touch .fire-mode, body.touch .stance-indicator { display: none; }
+body.touch .ammo-counter { margin: 0; display: flex; align-items: center; gap: 4px; }
+body.touch #ammo-clip { font-size: 26px; }
+body.touch .ammo-separator { font-size: 16px; }
+body.touch #ammo-reserve { font-size: 14px; }
+
+/* Hide the desktop keyboard legend on touch */
+body.touch #controls-legend { display: none; }
+
+/* --- Touch controls --- */
+body.touch #touch-ui { display: block; }
+body.touch #joystick-zone {
+  display: block; position: fixed; left: 0; bottom: 0;
+  width: 45vw; height: 55vh; z-index: 60; touch-action: none;
+}
+#joystick-base {
+  position: absolute; left: 26px; bottom: 26px;
+  width: 124px; height: 124px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), inset 0 0 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+#joystick-knob {
+  position: absolute; left: 50%; top: 50%;
+  width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+body.touch #touch-buttons {
+  display: block; position: fixed; inset: 0; z-index: 61; pointer-events: none;
+}
+.tbtn {
+  position: absolute; pointer-events: auto; touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 14, 20, 0.45); color: #e8f0f2;
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  padding: 0; cursor: pointer; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tbtn svg { width: 58%; height: 58%; }
+.tbtn.active {
+  background: rgba(0, 255, 170, 0.35); border-color: rgba(0, 255, 170, 0.8);
+  color: #fff; transform: scale(0.94);
+}
+/* Primary cluster, bottom-right (2 rows) */
+.tbtn-fire  { right: 16px; bottom: 16px; width: 76px; height: 76px; background: rgba(255, 0, 85, 0.28); border-color: rgba(255, 120, 150, 0.55); }
+.tbtn-fire.active { background: rgba(255, 0, 85, 0.55); border-color: #ff5588; }
+.tbtn-crouch { right: 102px; bottom: 20px; width: 54px; height: 54px; }
+.tbtn-reload { right: 166px; bottom: 24px; width: 46px; height: 46px; }
+.tbtn-jump  { right: 24px; bottom: 104px; width: 58px; height: 58px; }
+.tbtn-aim   { right: 94px; bottom: 100px; width: 58px; height: 58px; }
+.tbtn-punch { right: 162px; bottom: 96px; width: 48px; height: 48px; }
+/* Sprint, to the right of the joystick (left) */
+.tbtn-sprint { left: 160px; bottom: 28px; width: 54px; height: 54px; }
+/* Secondary row, top-right under the ammo panel */
+.tbtn-dodge, .tbtn-roll, .tbtn-kick, .tbtn-view, .tbtn-holster {
+  top: 118px; width: 42px; height: 42px;
+}
+.tbtn-dodge  { right: 12px; }
+.tbtn-roll   { right: 62px; }
+.tbtn-kick   { right: 112px; }
+.tbtn-view   { right: 162px; }
+.tbtn-holster{ right: 212px; }
+
+/* Portrait phones: shrink the cluster a touch */
+@media (orientation: portrait) and (pointer: coarse) {
+  #joystick-base { width: 108px; height: 108px; }
+  #joystick-knob { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
+  .tbtn-fire { width: 68px; height: 68px; }
+  .tbtn-jump, .tbtn-aim { width: 52px; height: 52px; }
+  body.touch .player-vitals-panel { bottom: 150px; width: 160px; }
+  body.touch .weapon-hud-panel { top: 54px; }
+}

@@ -1649,8 +1649,25 @@ class PlayerOperator {
     // Stunts that take full control over locomotion physics
     const fullBodyStuntActive = this.isRolling || this.isKicking || this.isDropkicking || this.isWallRunning || this.isWallBackflipping;
 
+    // MOBILE JOYSTICK (v3.8): analog stick drives movement when active.
+    // joyX/joyY are -1..1 (up = joyY -1). Deadzone 0.12.
+    const joyActive = Boolean(input.joyActive && (Math.abs(input.joyX || 0) > 0.12 || Math.abs(input.joyY || 0) > 0.12));
     if (!fullBodyStuntActive) {
-      if (this.cameraMode === 'TOP_DOWN') {
+      if (joyActive) {
+        const jx = input.joyX, jy = input.joyY;
+        if (this.cameraMode === 'TOP_DOWN') {
+          moveDir.set(jx, 0, jy);
+        } else {
+          const forward = new THREE.Vector3();
+          this.camera.getWorldDirection(forward);
+          forward.y = 0;
+          forward.normalize();
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+          right.y = 0;
+          right.normalize();
+          moveDir.addScaledVector(forward, -jy).addScaledVector(right, jx);
+        }
+      } else if (this.cameraMode === 'TOP_DOWN') {
         if (input.keys['KeyW'] || input.keys['ArrowUp']) moveDir.z -= 1;
         if (input.keys['KeyS'] || input.keys['ArrowDown']) moveDir.z += 1;
         if (input.keys['KeyA'] || input.keys['ArrowLeft']) moveDir.x -= 1;
@@ -1672,8 +1689,13 @@ class PlayerOperator {
       }
     }
 
-    const isMoving = moveDir.lengthSq() > 0;
-    if (isMoving) moveDir.normalize();
+    const isMoving = moveDir.lengthSq() > 0.01;
+    if (isMoving) {
+      // Keyboard: normalize to unit length. Joystick: keep analog magnitude
+      // (a half-push is a walk, a full push is a run); only clamp above 1.
+      if (!joyActive) moveDir.normalize();
+      else if (moveDir.length() > 1) moveDir.normalize();
+    }
     this.moveDir = moveDir;
     this.isMoving = isMoving;
 

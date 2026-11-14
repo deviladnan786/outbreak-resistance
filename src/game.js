@@ -13,8 +13,14 @@ class OutbreakGame {
       mouseScreen: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
       mouseLeftHeld: false,
       mouseRightHeld: false,
-      sensitivity: 1.0
+      sensitivity: 1.0,
+      // Mobile joystick (v3.8): -1..1, up = joyY -1. Set by touch controls.
+      joyX: 0,
+      joyY: 0,
+      joyActive: false
     };
+    // True when this device has a touchscreen (v3.8 mobile layout).
+    this.isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
     this.clock = new THREE.Clock();
     this.fpsTimer = 0;
@@ -47,6 +53,7 @@ class OutbreakGame {
     this.initPlayer();
     this.initZombies();
     this.initInputListeners();
+    this.initTouchControls();
     this.initSettingsModal();
     this.initCrazyGamesSDK();
 
@@ -206,8 +213,10 @@ class OutbreakGame {
       }
     });
 
-    // Pointer lock for immersive 3rd/1st person modes
+    // Pointer lock for immersive 3rd/1st person modes (desktop only — touch
+    // devices use drag-to-look and have no pointer lock).
     this.container.addEventListener('click', () => {
+      if (this.isTouch) return;
       if (this.cameraModes[this.cameraModeIndex] !== 'TOP_DOWN' && !this.isPaused) {
         if (this.container.requestPointerLock) {
           this.container.requestPointerLock();
@@ -215,9 +224,11 @@ class OutbreakGame {
       }
     });
 
-    // Mouse Buttons
+    // Mouse Buttons (desktop only — on touch the Fire/ADS buttons set these
+    // flags directly; a synthetic mousedown from a camera-drag touch must
+    // never fire the gun).
     window.addEventListener('mousedown', (e) => {
-      if (this.isPaused) return;
+      if (this.isPaused || this.isTouch) return;
       if (e.button === 0) this.input.mouseLeftHeld = true;
       if (e.button === 2) {
         // Hold Right-Click to Aim (Combat Strafe Mode / ADS)
@@ -228,6 +239,7 @@ class OutbreakGame {
     });
 
     window.addEventListener('mouseup', (e) => {
+      if (this.isTouch) return;
       if (e.button === 0) this.input.mouseLeftHeld = false;
       if (e.button === 2) {
         // Releasing Right-Click returns immediately to Free-Roam Turning!
@@ -240,14 +252,199 @@ class OutbreakGame {
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // --- MOBILE TOUCH CONTROLS (v3.8, PUBG-style) ---
+  // Left thumb: floating virtual joystick (movement). Right thumb: drag the
+  // game area to look around, plus icon buttons for every keyboard action.
+  // All of it drives the SAME window.input object the keyboard/mouse use,
+  // so no player logic is duplicated. Desktop (no touch) never sees this.
+  initTouchControls() {
+    if (!this.isTouch) return;
+    document.body.classList.add('touch');
+    const touchUI = document.getElementById('touch-ui');
+    if (touchUI) touchUI.setAttribute('aria-hidden', 'false');
+    // Short camera label from the start (the HTML ships the long desktop one).
+    const camTextEl = document.getElementById('camera-mode-text');
+    if (camTextEl) camTextEl.textContent = '3RD';
+    const input = this.input;
+    const self = this;
+
+    // Keep the touch state in one place so a lost finger never sticks a key.
+    const clearTouchInput = () => {
+      input.joyX = 0; input.joyY = 0; input.joyActive = false;
+      input.keys['ShiftLeft'] = false;
+      input.mouseLeftHeld = false;
+      input.mouseRightHeld = false;
+      ['Space', 'KeyR', 'KeyE', 'AltLeft', 'KeyC', 'KeyK', 'KeyQ'].forEach((k) => { input.keys[k] = false; });
+    };
+    window.addEventListener('blur', clearTouchInput);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearTouchInput(); });
+
+    // ---- Virtual joystick (floating: appears where the left thumb lands) ----
+    const zone = document.getElementById('joystick-zone');
+    const base = document.getElementById('joystick-base');
+    const knob = document.getElementById('joystick-knob');
+    if (zone && base && knob) {
+      const R = 52; // knob travel radius (px) — base is 124px wide
+      let joyId = null;
+      let cx = 0, cy = 0; // base centre in screen px
+      const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
+      const endJoy = () => {
+        joyId = null;
+        setKnob(0, 0);
+        input.joyX = 0; input.joyY = 0; input.joyActive = false;
+        input.keys['ShiftLeft'] = false;
+        // Park the base back at its home spot (clear top so bottom wins)
+        base.style.left = '26px'; base.style.top = 'auto'; base.style.bottom = '26px';
+      };
+      zone.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (joyId !== null) return;
+        const t = e.changedTouches[0];
+        joyId = t.identifier;
+        // Float the base to the thumb (clamped inside the zone)
+        const zr = zone.getBoundingClientRect();
+        cx = Math.max(zr.left + 62, Math.min(t.clientX, zr.right - 62));
+        cy = Math.max(zr.top + 62, Math.min(t.clientY, zr.bottom - 62));
+        base.style.left = (cx - zr.left - 62) + 'px';
+        base.style.top = (cy - zr.top - 62) + 'px';
+        base.style.bottom = 'auto';
+        input.joyActive = true;
+      }, { passive: false });
+      zone.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (t.identifier !== joyId) continue;
+          let dx = t.clientX - cx;
+          let dy = t.clientY - cy;
+          const len = Math.hypot(dx, dy);
+          if (len > R) { dx = dx / len * R; dy = dy / len * R; }
+          setKnob(dx, dy);
+          input.joyX = dx / R;
+          input.joyY = dy / R;
+          input.joyActive = true;
+          // Push the stick to the edge = sprint (PUBG auto-sprint)
+          input.keys['ShiftLeft'] = len >= R * 0.92;
+        }
+      }, { passive: false });
+      const joyEnd = (e) => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === joyId) endJoy();
+        }
+      };
+      zone.addEventListener('touchend', joyEnd);
+      zone.addEventListener('touchcancel', joyEnd);
+    }
+
+    // ---- Camera drag: drag the game area (right side) to look ----
+    // Touches on buttons/joystick never reach the container (separate DOM),
+    // so this is only the bare game area. Also feeds mouseNDC so top-down
+    // aiming follows the last touch point.
+    let camId = null;
+    let lastX = 0, lastY = 0;
+    const onCamStart = (e) => {
+      const t = e.changedTouches[0];
+      camId = t.identifier;
+      lastX = t.clientX; lastY = t.clientY;
+      input.mouseScreen.x = t.clientX;
+      input.mouseScreen.y = t.clientY;
+      input.mouseNDC.x = (t.clientX / window.innerWidth) * 2 - 1;
+      input.mouseNDC.y = -(t.clientY / window.innerHeight) * 2 + 1;
+    };
+    const onCamMove = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== camId) continue;
+        e.preventDefault();
+        const dx = t.clientX - lastX;
+        const dy = t.clientY - lastY;
+        lastX = t.clientX; lastY = t.clientY;
+        input.mouseScreen.x = t.clientX;
+        input.mouseScreen.y = t.clientY;
+        input.mouseNDC.x = (t.clientX / window.innerWidth) * 2 - 1;
+        input.mouseNDC.y = -(t.clientY / window.innerHeight) * 2 + 1;
+        if (this.cameraModes[this.cameraModeIndex] !== 'TOP_DOWN' && !this.isPaused) {
+          const sens = 0.0022 * input.sensitivity * 2.2; // touch needs a bigger gain than a mouse
+          this.cameraYaw -= dx * sens;
+          this.cameraPitch -= dy * sens;
+          this.cameraPitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.cameraPitch));
+        }
+      }
+    };
+    const onCamEnd = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === camId) camId = null;
+      }
+    };
+    this.container.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      onCamStart(e);
+    }, { passive: false });
+    this.container.addEventListener('touchmove', onCamMove, { passive: false });
+    this.container.addEventListener('touchend', onCamEnd);
+    this.container.addEventListener('touchcancel', onCamEnd);
+
+    // ---- Action buttons ----
+    // Hold actions set state while the finger is down; tap actions pulse a
+    // key once (the player code edge-triggers on those, same as a keypress).
+    const pulseKey = (code, ms = 160) => {
+      input.keys[code] = true;
+      setTimeout(() => { input.keys[code] = false; }, ms);
+    };
+    const bindBtn = (action, down, up) => {
+      const btn = document.querySelector(`#touch-buttons [data-action="${action}"]`);
+      if (!btn) return;
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        try { btn.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
+        btn.classList.add('active');
+        down();
+      });
+      const release = (e) => {
+        if (!btn.classList.contains('active')) return;
+        btn.classList.remove('active');
+        if (up) up();
+      };
+      btn.addEventListener('pointerup', release);
+      btn.addEventListener('pointercancel', release);
+      btn.addEventListener('lostpointercapture', release);
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    };
+    bindBtn('fire',
+      () => { input.mouseLeftHeld = true; },
+      () => { input.mouseLeftHeld = false; });
+    bindBtn('aim',
+      () => { input.mouseRightHeld = true; },
+      () => { input.mouseRightHeld = false; });
+    bindBtn('jump', () => pulseKey('Space'));
+    bindBtn('crouch', () => pulseKey('ControlLeft')); // Ctrl is a toggle in player.js
+    bindBtn('reload', () => pulseKey('KeyR'));
+    bindBtn('punch', () => pulseKey('KeyE'));
+    bindBtn('sprint',
+      () => { input.keys['ShiftLeft'] = true; },
+      () => { input.keys['ShiftLeft'] = false; });
+    bindBtn('dodge', () => pulseKey('AltLeft'));
+    bindBtn('roll', () => pulseKey('KeyC'));
+    bindBtn('kick', () => pulseKey('KeyK'));
+    bindBtn('holster', () => pulseKey('KeyQ'));
+    bindBtn('view', () => self.cycleCameraMode());
+
+    // Top-bar camera box is also tappable on touch (same as the View button).
+    const camBox = document.getElementById('camera-mode-box');
+    if (camBox) {
+      camBox.style.pointerEvents = 'auto';
+      camBox.addEventListener('click', () => self.cycleCameraMode());
+    }
+  }
+
   cycleCameraMode() {
     this.cameraModeIndex = (this.cameraModeIndex + 1) % this.cameraModes.length;
     const mode = this.cameraModes[this.cameraModeIndex];
 
     const modeTextEl = document.getElementById('camera-mode-text');
-    let label = '3RD PERSON (GTA)';
-    if (mode === 'TOP_DOWN') label = 'TOP-DOWN (50°)';
-    else if (mode === 'FIRST_PERSON') label = '1ST PERSON (FPS)';
+    // Touch HUD is icon-first: short 3-letter codes instead of the long label.
+    const short = this.isTouch;
+    let label = short ? '3RD' : '3RD PERSON (GTA)';
+    if (mode === 'TOP_DOWN') label = short ? 'TOP' : 'TOP-DOWN (50°)';
+    else if (mode === 'FIRST_PERSON') label = short ? '1ST' : '1ST PERSON (FPS)';
 
     if (modeTextEl) modeTextEl.textContent = label;
     this.notify(`CAMERA VIEW: ${label}`);
@@ -256,7 +453,7 @@ class OutbreakGame {
     if (mode !== 'TOP_DOWN') {
       this.cameraYaw = this.player.mesh.rotation.y;
       this.cameraPitch = 0.05;
-      if (this.container.requestPointerLock) {
+      if (!this.isTouch && this.container.requestPointerLock) {
         this.container.requestPointerLock();
       }
     } else {
