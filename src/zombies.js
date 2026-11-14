@@ -558,6 +558,12 @@ class ZombieManager {
                 m.shininess = 0;
                 if (m.emissive) m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
                 m.emissiveIntensity = 1;
+                // WALKER TINT: the walker reuses the prisoner FBX (the
+                // Ragged Revenant / Warlord models collapse to nothing
+                // under the shared walk clip — their bone rest orientations
+                // don't match the clip). Tint it a sickly rotten green so
+                // it reads as a distinct rotted shambler, not a prisoner.
+                if (key === 'walker' && m.color) m.color.setHex(0x9db38a);
               }
             }
           }
