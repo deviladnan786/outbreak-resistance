@@ -65,6 +65,15 @@ const ZOMBIE_TYPES = {
   }
 };
 
+// READABILITY LIFT: the night scene's lights are dim, and most zombie
+// materials ship with emissive black (or white at intensity 0), so the
+// zombies render nearly pitch-black — only their bright green health bar
+// shows, which reads as a "floating bar with no zombie". A steady dim
+// emissive lift makes the texture readable in the dark without making
+// them glow. setFlash() restores this value (not black) when a hit flash
+// ends, so the lift is never lost after the first hit.
+const ZOMBIE_BASE_EMISSIVE = 0x333333;
+
 // Unique animation clips (shared across types). Key = clip name used in
 // ZOMBIE_TYPES, value = FBX file under assets/zombies/fbx/anim/.
 const ZOMBIE_CLIPS = {
@@ -308,7 +317,8 @@ class Zombie {
           m.emissive.setHex(0xff2222);
           m.emissiveIntensity = 1.6;
         } else {
-          m.emissive.setHex(0x000000);
+          // Restore the readability lift (not black) — see ZOMBIE_BASE_EMISSIVE.
+          m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
           m.emissiveIntensity = 1.0;
         }
       }
@@ -508,6 +518,10 @@ class ZombieManager {
         // MATTE FIX: FBXLoader makes MeshPhongMaterial whose specular
         // highlight reads as polished gold under the warm night lights.
         // Kill the shine so skin/cloth read as matte, not metal.
+        // READABILITY LIFT: also give every material a steady dim emissive
+        // so the zombie is readable in the dark night (see
+        // ZOMBIE_BASE_EMISSIVE). Without it most zombies are pitch-black
+        // and only their health bar shows.
         fbxObj.traverse((o) => {
           if (o.isMesh && o.material) {
             const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -515,6 +529,8 @@ class ZombieManager {
               if (m.isMeshPhongMaterial) {
                 if (m.specular) m.specular.setHex(0x000000);
                 m.shininess = 0;
+                if (m.emissive) m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
+                m.emissiveIntensity = 1;
               }
             }
           }
