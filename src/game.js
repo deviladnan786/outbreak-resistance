@@ -284,7 +284,7 @@ class OutbreakGame {
     const base = document.getElementById('joystick-base');
     const knob = document.getElementById('joystick-knob');
     if (zone && base && knob) {
-      const R = 52; // knob travel radius (px) — base is 124px wide
+      const R = 40; // knob travel radius (px) — base is 96px wide
       let joyId = null;
       let cx = 0, cy = 0; // base centre in screen px
       const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
@@ -294,7 +294,7 @@ class OutbreakGame {
         input.joyX = 0; input.joyY = 0; input.joyActive = false;
         input.keys['ShiftLeft'] = false;
         // Park the base back at its home spot (clear top so bottom wins)
-        base.style.left = '26px'; base.style.top = 'auto'; base.style.bottom = '26px';
+        base.style.left = '20px'; base.style.top = 'auto'; base.style.bottom = '20px';
       };
       zone.addEventListener('touchstart', (e) => {
         e.preventDefault();
@@ -303,10 +303,10 @@ class OutbreakGame {
         joyId = t.identifier;
         // Float the base to the thumb (clamped inside the zone)
         const zr = zone.getBoundingClientRect();
-        cx = Math.max(zr.left + 62, Math.min(t.clientX, zr.right - 62));
-        cy = Math.max(zr.top + 62, Math.min(t.clientY, zr.bottom - 62));
-        base.style.left = (cx - zr.left - 62) + 'px';
-        base.style.top = (cy - zr.top - 62) + 'px';
+        cx = Math.max(zr.left + 48, Math.min(t.clientX, zr.right - 48));
+        cy = Math.max(zr.top + 48, Math.min(t.clientY, zr.bottom - 48));
+        base.style.left = (cx - zr.left - 48) + 'px';
+        base.style.top = (cy - zr.top - 48) + 'px';
         base.style.bottom = 'auto';
         input.joyActive = true;
       }, { passive: false });
@@ -426,6 +426,19 @@ class OutbreakGame {
     bindBtn('kick', () => pulseKey('KeyK'));
     bindBtn('holster', () => pulseKey('KeyQ'));
     bindBtn('view', () => self.cycleCameraMode());
+    bindBtn('fullscreen', () => self.toggleFullscreen());
+
+    // Auto-fullscreen on the FIRST tap anywhere (a user gesture, so the
+    // browser allows it). After that the fullscreen button toggles it.
+    // (Skips taps on the fullscreen button itself — its own handler toggles.)
+    const goFullscreenOnce = (e) => {
+      if (e.target && e.target.closest && e.target.closest('[data-action="fullscreen"]')) return;
+      self.toggleFullscreen();
+      document.removeEventListener('touchstart', goFullscreenOnce);
+      document.removeEventListener('pointerdown', goFullscreenOnce);
+    };
+    document.addEventListener('touchstart', goFullscreenOnce, { passive: true });
+    document.addEventListener('pointerdown', goFullscreenOnce, { passive: true });
 
     // Top-bar camera box is also tappable on touch (same as the View button).
     const camBox = document.getElementById('camera-mode-box');
@@ -433,6 +446,21 @@ class OutbreakGame {
       camBox.style.pointerEvents = 'auto';
       camBox.addEventListener('click', () => self.cycleCameraMode());
     }
+  }
+
+  // --- Fullscreen (mobile) ---
+  // Browsers only allow fullscreen from a user gesture, so we request it on
+  // the first tap and also offer the fullscreen button to toggle it back.
+  toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        if (document.exitFullscreen) document.exitFullscreen();
+      } else {
+        const el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      }
+    } catch (_) { /* fullscreen unavailable — the game still fills the viewport */ }
   }
 
   cycleCameraMode() {
