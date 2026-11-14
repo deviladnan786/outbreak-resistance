@@ -68,11 +68,12 @@ const ZOMBIE_TYPES = {
 // READABILITY LIFT: the night scene's lights are dim, and most zombie
 // materials ship with emissive black (or white at intensity 0), so the
 // zombies render nearly pitch-black — only their bright green health bar
-// shows, which reads as a "floating bar with no zombie". A steady dim
-// emissive lift makes the texture readable in the dark without making
-// them glow. setFlash() restores this value (not black) when a hit flash
-// ends, so the lift is never lost after the first hit.
-const ZOMBIE_BASE_EMISSIVE = 0x1a1a1a;
+// shows, which reads as a "floating bar with no zombie". The earlier fix
+// was a dim emissive lift, but that washes the texture out (whitish) and
+// the user wants the ORIGINAL texture/color. So: NO emissive lift here —
+// the zombies keep their true colours, and visibility comes from the scene
+// lighting (ambient brightened in environment.js) instead.
+const ZOMBIE_BASE_EMISSIVE = 0x000000;
 
 // Unique animation clips (shared across types). Key = clip name used in
 // ZOMBIE_TYPES, value = FBX file under assets/zombies/fbx/anim/.
@@ -106,7 +107,9 @@ function waveComp(n) {
 // Leg-damage thresholds per wave: returns 'crawl', 'stumble' or null.
 function legThresholdResult(wave, pct) {
   if (wave <= 1) {
-    if (pct >= 30) return 'crawl';
+    // One clean leg shot = 34/120 = 28.3% — the threshold sits just under
+    // that so a single leg hit visibly drops the zombie to a crawl.
+    if (pct >= 25) return 'crawl';
     return null;
   }
   if (wave === 2) {
@@ -327,7 +330,7 @@ class Zombie {
           m.emissive.setHex(0xff2222);
           m.emissiveIntensity = 1.6;
         } else {
-          // Restore the readability lift (not black) — see ZOMBIE_BASE_EMISSIVE.
+          // Restore the base emissive (black = original colours, no lift).
           m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
           m.emissiveIntensity = 1.0;
         }
@@ -528,10 +531,9 @@ class ZombieManager {
         // MATTE FIX: FBXLoader makes MeshPhongMaterial whose specular
         // highlight reads as polished gold under the warm night lights.
         // Kill the shine so skin/cloth read as matte, not metal.
-        // READABILITY LIFT: also give every material a steady dim emissive
-        // so the zombie is readable in the dark night (see
-        // ZOMBIE_BASE_EMISSIVE). Without it most zombies are pitch-black
-        // and only their health bar shows.
+        // (The emissive stays at ZOMBIE_BASE_EMISSIVE = black so the
+        // zombie keeps its ORIGINAL texture colours; visibility comes
+        // from the brightened ambient light, not a self-glow.)
         fbxObj.traverse((o) => {
           if (o.isMesh && o.material) {
             const mats = Array.isArray(o.material) ? o.material : [o.material];

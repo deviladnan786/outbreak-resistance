@@ -28,8 +28,10 @@ class CityEnvironment {
   }
 
   initLighting() {
-    // Deep blue night ambient fill
-    const ambientLight = new THREE.AmbientLight(0x1a2638, 0.85);
+    // Night ambient fill — brightened so zombies show their TRUE texture
+    // colours (the emissive lift was washing them whitish, so it was
+    // removed; visibility now comes from the light, not a self-glow).
+    const ambientLight = new THREE.AmbientLight(0x2a3648, 1.2);
     this.scene.add(ambientLight);
 
     // Directional moonlight with soft shadows
