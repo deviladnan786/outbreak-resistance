@@ -2547,15 +2547,23 @@ class PlayerOperator {
 
     // HITSCAN (fps-shooter skill: camera finds the aim point, then the bullet
     // travels muzzle -> aim point, so cover in front of the gun still blocks).
-    // Raycast from the muzzle toward the aim point; nearest hit wins.
+    // HIT RAY FIX: the hit-detection ray is cast from the CAMERA (what the
+    // crosshair is on), not the muzzle. The muzzle sits ~1.4m high, lower
+    // than the camera, so when aiming down at a close zombie's legs/shoes
+    // the muzzle ray dipped below ground level and hit the DIRT just
+    // before the zombie — the ground (a shootable) won the nearest-hit
+    // race and the zombie took no damage at all. The camera ray is the
+    // line the player is actually aiming along, so whatever pixel the
+    // crosshair sits on is what gets hit. The visible tracer still
+    // originates at the muzzle (spawnTracer), so the shot still looks
+    // like it came from the gun.
     let hitDist = null;
     const muzzle = this.getActiveMuzzleWorldPos();
     if (muzzle && this.aimTarget) {
-      const dir = new THREE.Vector3().subVectors(this.aimTarget, muzzle);
-      const aimLen = dir.length();
-      if (aimLen > 0.01) {
-        dir.normalize();
-        this._shotRaycaster.set(muzzle, dir);
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldDirection(camDir);
+      this._shotRaycaster.set(this.camera.position, camDir);
+      {
         const targets = [];
         if (window.game && window.game.zombieManager) {
           targets.push(...window.game.zombieManager.getZombieMeshes());
