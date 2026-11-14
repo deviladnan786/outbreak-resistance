@@ -1,0 +1,530 @@
+/**
+ * Outbreak: Resistance - Core Game Controller (Three.js)
+ * Master loop handling scene, multi-mode camera (Top-Down, 3rd Person GTA, 1st Person FPS),
+ * ADS zoom, input capture, UI sync & CrazyGames SDK.
+ */
+
+class OutbreakGame {
+  constructor() {
+    this.container = document.getElementById('game-container');
+    this.input = {
+      keys: {},
+      mouseNDC: new THREE.Vector2(),
+      mouseScreen: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+      mouseLeftHeld: false,
+      mouseRightHeld: false,
+      sensitivity: 1.0
+    };
+
+    this.clock = new THREE.Clock();
+    this.fpsTimer = 0;
+    this.framesCount = 0;
+    this.missionSeconds = 600; // 10:00 Extraction Countdown
+    this.isPaused = false;
+
+    // Multi-Mode Camera Settings (Toggle with 'V')
+    this.cameraModes = ['THIRD_PERSON', 'TOP_DOWN', 'FIRST_PERSON'];
+    this.cameraModeIndex = 0;
+
+    // Free mouse-look yaw/pitch angles for 3rd & 1st person modes
+    this.cameraYaw = 0;
+    this.cameraPitch = 0.05;
+
+    // Top-down camera parameters
+    this.camBaseHeight = 18.0;
+    this.camBaseOffsetZ = 13.5;
+    this.camCurrentHeight = 18.0;
+    this.camCurrentOffsetZ = 13.5;
+
+    this.initThree();
+    this.initEnvironment();
+    this.initPlayer();
+    this.initZombies();
+    this.initInputListeners();
+    this.initSettingsModal();
+    this.initCrazyGamesSDK();
+
+    window.addEventListener('resize', () => this.onWindowResize());
+    this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
+
+    this.animate();
+  }
+
+  initThree() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x06080c);
+    this.scene.fog = new THREE.FogExp2(0x06080c, 0.024);
+
+    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.2, 140);
+    this.camera.position.set(0, this.camBaseHeight, this.camBaseOffsetZ);
+    this.camera.lookAt(0, 0, 0);
+    this.scene.add(this.camera); // Critical: ensures camera children (FPS weapon rig) render in scene!
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.container.appendChild(this.renderer.domElement);
+  }
+
+  initEnvironment() {
+    this.environment = new CityEnvironment(this.scene);
+  }
+
+  initPlayer() {
+    this.player = new PlayerOperator(this.scene, this.camera);
+  }
+
+  initZombies() {
+    // Zombie swarm + waves. game.zombies is the live array (shared reference —
+    // the manager mutates it with push/splice, never reassigns it).
+    this.zombieManager = new ZombieManager(this.scene, this.environment, this.player, this);
+    this.zombies = this.zombieManager.zombies;
+    this.extracted = false;
+  }
+
+  // Player died: stop the swarm, show the game-over overlay with run stats
+  onPlayerDeath() {
+    this.isPaused = true;
+    const over = document.getElementById('gameover-overlay');
+    if (over) {
+      const stats = document.getElementById('gameover-stats');
+      if (stats) {
+        const mins = Math.floor((600 - this.missionSeconds) / 60);
+        const secs = Math.floor((600 - this.missionSeconds) % 60);
+        stats.textContent = `SURVIVED ${mins}:${secs.toString().padStart(2, '0')} · WAVE ${Math.max(1, this.zombieManager.wave)} · ${this.zombieManager.kills} KILLS · LEVEL ${this.zombieManager.level}`;
+      }
+      over.classList.remove('hidden');
+    }
+    if (document.exitPointerLock) document.exitPointerLock();
+  }
+
+  // Timer hit zero and the player is still alive: extraction win
+  onExtraction() {
+    if (this.extracted || this.zombieManager.gameOver) return;
+    this.extracted = true;
+    this.isPaused = true;
+    const over = document.getElementById('gameover-overlay');
+    if (over) {
+      const title = document.getElementById('gameover-title');
+      if (title) title.textContent = 'EXTRACTION COMPLETE';
+      const stats = document.getElementById('gameover-stats');
+      if (stats) {
+        stats.textContent = `YOU SURVIVED THE FULL 10 MINUTES · WAVE ${Math.max(1, this.zombieManager.wave)} · ${this.zombieManager.kills} KILLS · LEVEL ${this.zombieManager.level}`;
+      }
+      over.classList.remove('hidden');
+    }
+    if (document.exitPointerLock) document.exitPointerLock();
+  }
+
+  initInputListeners() {
+    // Keyboard Input
+    window.addEventListener('keydown', (e) => {
+      this.input.keys[e.code] = true;
+      if (e.key === 'Alt') this.input.keys['Alt'] = true;
+
+      if (e.code === 'Space' || e.code === 'AltLeft' || e.code === 'AltRight' || e.key === 'Alt') {
+        e.preventDefault();
+      }
+
+      // [V] Switch Camera Mode
+      if (e.code === 'KeyV') {
+        this.cycleCameraMode();
+      }
+
+      if (e.code === 'Escape') {
+        this.toggleSettingsModal();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      this.input.keys[e.code] = false;
+      if (e.key === 'Alt') {
+        this.input.keys['Alt'] = false;
+        this.input.keys['AltLeft'] = false;
+        this.input.keys['AltRight'] = false;
+      }
+    });
+
+    // Prevent stuck keys on tab switch, window blur, or modal open
+    window.addEventListener('blur', () => {
+      this.input.keys = {};
+      this.input.mouseLeftHeld = false;
+      this.input.mouseRightHeld = false;
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.input.keys = {};
+        this.input.mouseLeftHeld = false;
+        this.input.mouseRightHeld = false;
+      }
+    });
+
+    // Mouse Movement & Crosshair
+    const crosshairEl = document.getElementById('custom-crosshair');
+
+    window.addEventListener('mousemove', (e) => {
+      this.input.mouseScreen.x = e.clientX;
+      this.input.mouseScreen.y = e.clientY;
+
+      // Update Custom Reticle Position
+      if (crosshairEl) {
+        if (this.cameraModes[this.cameraModeIndex] === 'TOP_DOWN') {
+          crosshairEl.style.left = `${e.clientX}px`;
+          crosshairEl.style.top = `${e.clientY}px`;
+        } else {
+          crosshairEl.style.left = `50%`;
+          crosshairEl.style.top = `50%`;
+        }
+      }
+
+      this.input.mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+      this.input.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      // In 3rd person / 1st person, mouse movements directly control yaw & pitch!
+      if (this.cameraModes[this.cameraModeIndex] !== 'TOP_DOWN' && !this.isPaused) {
+        const sens = 0.0022 * this.input.sensitivity;
+        const movementX = e.movementX || 0;
+        const movementY = e.movementY || 0;
+
+        // Natural mouse look: move mouse left -> camera turns left!
+        this.cameraYaw -= movementX * sens;
+        this.cameraPitch -= movementY * sens;
+
+        // Clamp pitch so camera doesn't flip upside down
+        this.cameraPitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.cameraPitch));
+      }
+    });
+
+    // Pointer lock for immersive 3rd/1st person modes
+    this.container.addEventListener('click', () => {
+      if (this.cameraModes[this.cameraModeIndex] !== 'TOP_DOWN' && !this.isPaused) {
+        if (this.container.requestPointerLock) {
+          this.container.requestPointerLock();
+        }
+      }
+    });
+
+    // Mouse Buttons
+    window.addEventListener('mousedown', (e) => {
+      if (this.isPaused) return;
+      if (e.button === 0) this.input.mouseLeftHeld = true;
+      if (e.button === 2) {
+        // Hold Right-Click to Aim (Combat Strafe Mode / ADS)
+        this.player.isAiming = true;
+        this.input.mouseRightHeld = true;
+        if (window.soundEngine && window.soundEngine.playScope) window.soundEngine.playScope(true);
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.input.mouseLeftHeld = false;
+      if (e.button === 2) {
+        // Releasing Right-Click returns immediately to Free-Roam Turning!
+        this.player.isAiming = false;
+        this.input.mouseRightHeld = false;
+        if (window.soundEngine && window.soundEngine.playScope) window.soundEngine.playScope(false);
+      }
+    });
+
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  cycleCameraMode() {
+    this.cameraModeIndex = (this.cameraModeIndex + 1) % this.cameraModes.length;
+    const mode = this.cameraModes[this.cameraModeIndex];
+
+    const modeTextEl = document.getElementById('camera-mode-text');
+    let label = '3RD PERSON (GTA)';
+    if (mode === 'TOP_DOWN') label = 'TOP-DOWN (50°)';
+    else if (mode === 'FIRST_PERSON') label = '1ST PERSON (FPS)';
+
+    if (modeTextEl) modeTextEl.textContent = label;
+    this.notify(`CAMERA VIEW: ${label}`);
+
+    // If switching to 3rd or 1st person, initialize yaw to player's current facing direction
+    if (mode !== 'TOP_DOWN') {
+      this.cameraYaw = this.player.mesh.rotation.y;
+      this.cameraPitch = 0.05;
+      if (this.container.requestPointerLock) {
+        this.container.requestPointerLock();
+      }
+    } else {
+      if (document.exitPointerLock) {
+        document.exitPointerLock();
+      }
+    }
+  }
+
+  initSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    const closeBtn = document.getElementById('close-settings-btn');
+    const resumeBtn = document.getElementById('resume-game-btn');
+    const sensSlider = document.getElementById('sensitivity-slider');
+    const sensVal = document.getElementById('sensitivity-val');
+    const camSlider = document.getElementById('camera-height-slider');
+    const camVal = document.getElementById('cam-height-val');
+    const laserSelect = document.getElementById('laser-color-select');
+    const sfxToggle = document.getElementById('sfx-toggle');
+
+    if (closeBtn) closeBtn.addEventListener('click', () => this.toggleSettingsModal(false));
+    if (resumeBtn) resumeBtn.addEventListener('click', () => this.toggleSettingsModal(false));
+
+    if (sensSlider) {
+      sensSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this.input.sensitivity = val;
+        sensVal.textContent = `${val.toFixed(1)}x`;
+      });
+    }
+
+    if (camSlider) {
+      camSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this.camBaseHeight = val;
+        this.camBaseOffsetZ = val * 0.75;
+        camVal.textContent = `${val}m`;
+      });
+    }
+
+    if (laserSelect) {
+      laserSelect.addEventListener('change', (e) => {
+        this.player.setLaserColor(parseInt(e.target.value.replace('#', '0x')));
+      });
+    }
+
+    if (sfxToggle) {
+      sfxToggle.addEventListener('change', (e) => {
+        window.soundEngine.enabled = e.target.checked;
+      });
+    }
+  }
+
+  toggleSettingsModal(forceState) {
+    const modal = document.getElementById('settings-modal');
+    if (!modal) return;
+    if (forceState !== undefined) {
+      this.isPaused = forceState;
+    } else {
+      this.isPaused = !this.isPaused;
+    }
+
+    modal.classList.toggle('hidden', !this.isPaused);
+    if (this.isPaused) {
+      this.input.mouseLeftHeld = false;
+      this.input.mouseRightHeld = false;
+      if (document.exitPointerLock) document.exitPointerLock();
+    }
+  }
+
+  async initCrazyGamesSDK() {
+    try {
+      if (window.CrazyGames && window.CrazyGames.SDK) {
+        await window.CrazyGames.SDK.init();
+        console.log('[CrazyGames] SDK v3 Initialized successfully.');
+        window.CrazyGames.SDK.game.gameplayStart();
+      }
+    } catch (err) {
+      console.warn('[CrazyGames] SDK Init skipped (running in local sandbox):', err);
+    }
+  }
+
+  notify(text) {
+    const container = document.getElementById('game-notifications');
+    if (!container) return;
+    const item = document.createElement('div');
+    item.className = 'tactical-notify';
+    item.textContent = text;
+    container.appendChild(item);
+    setTimeout(() => {
+      if (item.parentNode) item.parentNode.removeChild(item);
+    }, 2600);
+  }
+
+  updateCamera(delta) {
+    const isADS = this.player.isAiming;
+    const mode = this.cameraModes[this.cameraModeIndex];
+
+    const scopeOverlay = document.getElementById('scope-overlay');
+    const crosshairEl = document.getElementById('custom-crosshair');
+    const scopeDistEl = document.getElementById('scope-dist');
+
+    if (scopeOverlay) scopeOverlay.classList.toggle('hidden', !isADS);
+    if (crosshairEl) crosshairEl.classList.toggle('scoped', isADS);
+    if (scopeDistEl) {
+      scopeDistEl.textContent = this.player.position.distanceTo(this.player.aimTarget).toFixed(1);
+    }
+
+    // ==========================================
+    // CAMERA MODE 0: TOP-DOWN (50° Isometric)
+    // ==========================================
+    if (mode === 'TOP_DOWN') {
+      let targetHeight = this.camBaseHeight;
+      let targetOffsetZ = this.camBaseOffsetZ;
+
+      const aimDir = new THREE.Vector3().subVectors(this.player.aimTarget, this.player.position);
+      aimDir.y = 0;
+      const aimDist = aimDir.length();
+      if (aimDist > 0.1) aimDir.normalize();
+
+      let targetLookAt = this.player.position.clone();
+
+      if (isADS) {
+        // ADS zooms in (lower + closer) but the camera NEVER shifts toward the
+        // aim point — the lookAt stays exactly on the player, so the view
+        // cannot rotate or drift while walking.
+        targetHeight = this.camBaseHeight * 0.65;
+        targetOffsetZ = this.camBaseOffsetZ * 0.65;
+      }
+
+      this.camCurrentHeight += (targetHeight - this.camCurrentHeight) * Math.min(1, 6.0 * delta);
+      this.camCurrentOffsetZ += (targetOffsetZ - this.camCurrentOffsetZ) * Math.min(1, 6.0 * delta);
+
+      const desiredPos = new THREE.Vector3(
+        targetLookAt.x,
+        this.player.position.y + this.camCurrentHeight,
+        targetLookAt.z + this.camCurrentOffsetZ
+      );
+
+      this.camera.position.lerp(desiredPos, Math.min(1, 10.0 * delta));
+      this.camera.lookAt(targetLookAt.x, this.player.position.y + 0.6, targetLookAt.z);
+    }
+
+    // ==========================================
+    // CAMERA MODE 1: 3RD PERSON (GTA / Resident Evil 4 Style)
+    // ==========================================
+    else if (mode === 'THIRD_PERSON') {
+      // Smooth dynamic FOV (50° normal -> 30° when scoped)
+      const targetFov = isADS ? 30 : 50;
+
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, 10.0 * delta);
+      this.camera.updateProjectionMatrix();
+
+      // PUBG TPP Over-the-Right-Shoulder Aim View:
+      // Steady, fluid camera framing during all stunts (Roll, Shootdodge Dive, Jumps) with zero camera jarring or swapping!
+      const distance = isADS ? 2.2 : 3.2;
+      const shoulderOffset = isADS ? 0.82 : 0.55;
+      const eyeHeight = isADS ? 1.55 : 1.65;
+
+      const cosPitch = Math.cos(this.cameraPitch);
+      const sinPitch = Math.sin(this.cameraPitch);
+      const cosYaw = Math.cos(this.cameraYaw);
+      const sinYaw = Math.sin(this.cameraYaw);
+
+      const forward = new THREE.Vector3(sinYaw * cosPitch, sinPitch, cosYaw * cosPitch).normalize();
+      const right = new THREE.Vector3(cosYaw, 0, -sinYaw).normalize();
+
+      const playerFocusPos = new THREE.Vector3(
+        this.player.position.x,
+        this.player.position.y + eyeHeight,
+        this.player.position.z
+      );
+
+      const camPos = playerFocusPos.clone()
+        .add(right.clone().multiplyScalar(shoulderOffset))
+        .sub(forward.clone().multiplyScalar(distance));
+
+      if (camPos.y < this.player.currentGroundY + 0.3) {
+        camPos.y = this.player.currentGroundY + 0.3;
+      }
+
+      const camLerpRate = 18.0;
+      this.camera.position.lerp(camPos, Math.min(1, camLerpRate * delta));
+      const lookTarget = this.camera.position.clone().add(forward.clone().multiplyScalar(20));
+      this.camera.lookAt(lookTarget);
+    }
+
+    // ==========================================
+    // CAMERA MODE 2: 1ST PERSON (True FPS View)
+    // ==========================================
+    else if (mode === 'FIRST_PERSON') {
+      const targetFov = isADS ? 38 : 65;
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, 12.0 * delta);
+      this.camera.updateProjectionMatrix();
+
+      const cosPitch = Math.cos(this.cameraPitch);
+      const sinPitch = Math.sin(this.cameraPitch);
+      const cosYaw = Math.cos(this.cameraYaw);
+      const sinYaw = Math.sin(this.cameraYaw);
+
+      const forward = new THREE.Vector3(sinYaw * cosPitch, sinPitch, cosYaw * cosPitch).normalize();
+
+      const eyeHeight = 1.62;
+      const camPos = new THREE.Vector3(
+        this.player.position.x,
+        this.player.position.y + eyeHeight,
+        this.player.position.z
+      );
+
+      this.camera.position.copy(camPos);
+      const lookTarget = camPos.clone().add(forward.clone().multiplyScalar(20));
+      this.camera.lookAt(lookTarget);
+    }
+  }
+
+  updateMissionTimer(delta) {
+    if (this.missionSeconds > 0) {
+      this.missionSeconds -= delta;
+      if (this.missionSeconds < 0) this.missionSeconds = 0;
+
+      const mins = Math.floor(this.missionSeconds / 60);
+      const secs = Math.floor(this.missionSeconds % 60);
+      const ms = Math.floor((this.missionSeconds % 1) * 100);
+
+      const timerEl = document.getElementById('mission-timer');
+      if (timerEl) {
+        timerEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+      }
+      if (this.missionSeconds <= 0 && !this.extracted) {
+        this.onExtraction();
+      }
+    }
+  }
+
+  updateFPS(delta) {
+    this.framesCount++;
+    this.fpsTimer += delta;
+    if (this.fpsTimer >= 0.5) {
+      const fps = Math.round((this.framesCount / this.fpsTimer));
+      const fpsEl = document.getElementById('fps-display');
+      if (fpsEl) fpsEl.textContent = `${fps} FPS`;
+      this.framesCount = 0;
+      this.fpsTimer = 0;
+    }
+  }
+
+  onWindowResize() {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  animate() {
+    requestAnimationFrame(() => this.animate());
+
+    const rawDelta = Math.min(this.clock.getDelta(), 0.1);
+    const timeScale = (this.player && typeof this.player.timeScale === 'number') ? this.player.timeScale : 1.0;
+    const delta = rawDelta * timeScale;
+    const time = this.clock.getElapsedTime();
+    const activeCameraMode = this.cameraModes[this.cameraModeIndex];
+
+    if (!this.isPaused) {
+      this.player.update(delta, this.input, this.environment, activeCameraMode);
+      if (this.zombieManager) this.zombieManager.update(delta);
+      this.environment.update(delta, time);
+      this.updateCamera(rawDelta); // Keep camera smooth even during bullet time
+      this.updateMissionTimer(rawDelta);
+    }
+
+    this.updateFPS(delta);
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  window.game = new OutbreakGame();
+});

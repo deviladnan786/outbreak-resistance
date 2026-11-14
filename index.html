@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Outbreak: Resistance - 3D Zombie Survival</title>
+  
+  <!-- CrazyGames SDK v3 -->
+  <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+
+  <!-- Three.js CDN -->
+  <script src="src/three.r128.min.js"></script>
+  <!-- Three.js GLTFLoader & FBXLoader -->
+  <script src="src/GLTFLoader.js"></script>
+  <script src="src/fflate.min.js"></script>
+  <script src="src/FBXLoader.js?v=leon_v8"></script>
+
+  <!-- Google Fonts for Tactical UI -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 3D WebGL Canvas Container -->
+  <div id="game-container"></div>
+
+  <!-- Tactical Laser Reticle & Mouse Crosshair -->
+  <div id="custom-crosshair">
+    <div class="crosshair-center"></div>
+    <div class="crosshair-ring"></div>
+    <div class="crosshair-bracket top"></div>
+    <div class="crosshair-bracket bottom"></div>
+    <div class="crosshair-bracket left"></div>
+    <div class="crosshair-bracket right"></div>
+  </div>
+
+  <!-- ADS / Scope Overlay (Cinematic GTA/PUBG Over-The-Shoulder Vignette) -->
+  <div id="scope-overlay" class="hidden">
+    <div class="scope-vignette"></div>
+    <div class="scope-hud-info">
+      <div class="scope-range-text">OPTIC ADS // RANGE: <span id="scope-dist">18.4</span>m</div>
+    </div>
+  </div>
+
+  <!-- Tactical HUD Overlay -->
+  <div id="hud-overlay">
+    <!-- Top Bar: Status & Wave -->
+    <header class="top-hud">
+      <div class="sector-badge">
+        <span class="pulse-dot"></span>
+        <span class="sector-title">SECTOR 04 // QUARANTINE ZONE</span>
+      </div>
+      <div class="mission-timer-box">
+        <span class="timer-label">EXTRACTION COUNTDOWN</span>
+        <span id="mission-timer">10:00.00</span>
+      </div>
+      <div class="mission-timer-box">
+        <span class="timer-label">WAVE / KILLS / LEVEL</span>
+        <span id="wave-info">WAVE 1 · 0 LEFT · KILLS 0 · LV 1</span>
+      </div>
+      <div class="camera-mode-box" id="camera-mode-box">
+        <span class="cam-label">VIEW MODE [V]</span>
+        <span id="camera-mode-text">3RD PERSON (GTA)</span>
+      </div>
+      <div class="fps-counter" id="fps-display">60 FPS</div>
+    </header>
+
+    <!-- Bottom Left: Player Status (Health, Stamina, Status) -->
+    <div class="player-vitals-panel">
+      <div class="vitals-header">
+        <span class="player-name">OPERATOR // LEON KENNEDY</span>
+        <span id="movement-state-badge" class="state-badge">WALKING</span>
+      </div>
+      
+      <!-- Health Bar -->
+      <div class="vital-bar-group">
+        <div class="bar-label-row">
+          <span>BIO-INTEGRITY (HP)</span>
+          <span id="hp-text">100 / 100</span>
+        </div>
+        <div class="bar-track hp-track">
+          <div id="hp-fill" class="bar-fill hp-fill" style="width: 100%;"></div>
+        </div>
+      </div>
+
+      <!-- Stamina Bar -->
+      <div class="vital-bar-group">
+        <div class="bar-label-row">
+          <span>STAMINA (SPRINT/ROLL)</span>
+          <span id="stamina-text">100%</span>
+        </div>
+        <div class="bar-track stamina-track">
+          <div id="stamina-fill" class="bar-fill stamina-fill" style="width: 100%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Right: Weapon & Ammo HUD -->
+    <div class="weapon-hud-panel">
+      <div class="weapon-info">
+        <div class="weapon-name" id="weapon-name">M4A1 TACTICAL CARBINE</div>
+        <div class="fire-mode">SEMI / AUTO [5.56 NATO]</div>
+      </div>
+      <div class="ammo-counter">
+        <span id="ammo-clip">30</span>
+        <span class="ammo-separator">/</span>
+        <span id="ammo-reserve">180</span>
+      </div>
+      <div class="stance-indicator">
+        <span id="ads-indicator" class="stance-pill">HIP-FIRE</span>
+        <span id="laser-indicator" class="stance-pill active">LASER ACTIVE</span>
+      </div>
+    </div>
+
+    <!-- Center Screen Notifications -->
+    <div id="game-notifications" class="notification-container"></div>
+
+    <!-- Controls Quick-Helper Panel (Bottom Center) -->
+    <div class="controls-legend" id="controls-legend">
+      <div class="control-key"><kbd>WASD</kbd> Move</div>
+      <div class="control-key"><kbd>SHIFT</kbd> Sprint</div>
+      <div class="control-key"><kbd>SPACE</kbd> Jump / Wall Run</div>
+      <div class="control-key"><kbd>ALT</kbd> Max Payne Shootdodge Dive</div>
+      <div class="control-key"><kbd>CTRL</kbd> Crouch</div>
+      <div class="control-key"><kbd>C</kbd> 360° Roll</div>
+      <div class="control-key"><kbd>Q</kbd> Holster / Draw Gun</div>
+      <div class="control-key"><kbd>L-CLICK</kbd> Fire / Punch</div>
+      <div class="control-key"><kbd>E</kbd> Melee Punch</div>
+      <div class="control-key"><kbd>K</kbd> Kick / W+K: Flying Kick</div>
+      <div class="control-key"><kbd>R-CLICK</kbd> ADS Optic</div>
+      <div class="control-key"><kbd>V</kbd> View Mode</div>
+      <div class="control-key"><kbd>R</kbd> Reload</div>
+      <div class="control-key"><kbd>ESC</kbd> Settings</div>
+    </div>
+  </div>
+
+  <!-- Game Over / Extraction Overlay -->
+  <div id="gameover-overlay" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="gameover-title">YOU DIED</h2>
+      </div>
+      <div class="modal-body">
+        <p id="gameover-stats" style="font-size: 18px; letter-spacing: 1px;">—</p>
+        <p style="opacity: 0.7;">The quarantine zone claims another operator.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="tactical-btn primary" onclick="location.reload()">PLAY AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings / Pause Modal -->
+  <div id="settings-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>TACTICAL CONFIGURATION</h2>
+        <button id="close-settings-btn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-row">
+          <label for="sensitivity-slider">Aim Sensitivity</label>
+          <div class="slider-wrapper">
+            <input type="range" id="sensitivity-slider" min="0.2" max="3.0" step="0.1" value="1.0">
+            <span id="sensitivity-val">1.0x</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label for="camera-height-slider">Camera Altitude</label>
+          <div class="slider-wrapper">
+            <input type="range" id="camera-height-slider" min="12" max="28" step="1" value="18">
+            <span id="cam-height-val">18m</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label for="laser-color-select">Laser Sight Color</label>
+          <select id="laser-color-select" class="tactical-select">
+            <option value="#00ff66" selected>Tactical Green (#00FF66)</option>
+            <option value="#ff1133">Combat Red (#FF1133)</option>
+            <option value="#00ccff">Cyber Cyan (#00CCFF)</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <label for="sfx-toggle">Tactical Audio (Synthesized)</label>
+          <input type="checkbox" id="sfx-toggle" checked class="tactical-toggle">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="resume-game-btn" class="tactical-btn primary">RESUME OPERATION</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core Game Scripts (Cache-Busted to ensure newest Mixamo Mocap Operator loads) -->
+  <script src="src/audio.js?v=leon_v8"></script>
+  <script src="src/SkeletonUtils.js?v=1"></script>
+  <script src="src/zombies.js?v=1"></script>
+  <script src="src/environment.js?v=leon_v8"></script>
+  <script src="src/player.js?v=leon_v11"></script>
+  <script src="src/game.js?v=leon_v8"></script>
+</body>
+</html>

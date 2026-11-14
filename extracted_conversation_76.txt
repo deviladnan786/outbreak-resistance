@@ -1,0 +1,352 @@
+ *
+ˊ2»:܈B܈JN
+&0B!
+	sessionID-3750763034362895579HPZuR3Xas-ZNNPJjuMPoPfbyA4X
+b$cfb0117b-be94-4533-8b6a-4b8def67f74fj
+P
+$d8cd8121-9f2e-45ee-a564-1d83d704c6ccL$"$8dba6f78-3b3b-41fc-8922-82c4b0bcad79$
+»
+܈܈
+bYou are 100% right. If a game needs a manual or a complicated explanation, casual web players leave within 5 seconds. 
+
+The top-earning games on CrazyGames are **stupidly simple to understand**: you look at the screen for 2 seconds, and you immediately know what to do, yet you end up playing for 45 minutes because the progression loop is addictive.
+
+Here are **3 crystal-clear, proven, multi-million-play web game concepts**. For each one, I have mapped out the **entire game scope, every screen, every mechanic, and an exact milestone roadmap** so you know every single moving part before writing a line of code.
+
+---
+
+# OPTION 1: *BULLET FORGE* (Weapon Evolution / Math-Gate Runner)
+
+> **The 2-Second Concept**: Your gun glides forward automatically. You only steer **Left and Right**. Shoot incoming crates and pass through blue math gates (`+5 Fire Rate`, `x2 Bullets`) while dodging red gates (`-50 Damage`). At the finish line, unleash all your bullets into a giant gold vault.  
+> **Why Anyone Understands It**: There are zero tutorial popups needed. Blue numbers = good. Red numbers = bad. Shoot target = earn coins.
+
+```
+[START MENU] ──> [RUNNER TRACK (30-45s)] ──> [VAULT BLAST FINALE] ──> [REWARD/UPGRADE]
+                                                                          │
+                                                                          └──> [NEXT LEVEL]
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: Mouse drag or A/D keys (PC) / Touch drag (Mobile) to steer left/right. Auto-fires continuously.
+2. **Track Elements**:
+   * **Math Gates**: Floating energy gates. Blue (`+10 Fire Rate`, `x2 Barrels`, `+20 Range`), Red (`-5 Fire Rate`, `÷2 Barrels`).
+   * **Destructible Blocks**: Numbered obstacle blocks (e.g., "50 HP"). Shooting them down gives cash and clears the path.
+   * **Money Piles**: Glowing cash scattered on lanes to steer into.
+3. **Finish Line (The Vault Blast)**:
+   * The track ends at a row of 10 armored bank vaults with increasing multipliers ($1.5x$, $2x$, $5x$, $10x$).
+   * Your gun unleashes maximum rapid-fire with whatever stats you built during the run to break as many vaults as possible before running out of distance.
+4. **Armory & Permanent Upgrades (Lobby Menu)**:
+   * **Starting Fire Rate** (Cost: Coins)
+   * **Starting Bullet Damage** (Cost: Coins)
+   * **Income Multiplier** (Cost: Coins)
+   * **10 Unlockable Guns** (Pistol → Dual Uzis → Shotgun → Minigun → Plasma Cannon).
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the exact millisecond the gun starts moving down the runway.
+   * *Midgame Ad*: Shows after every 3 levels during the transition screen (respects the 3-minute cooldown).
+   * *Rewarded Ad*: **"3x Vault Cash"** button on the victory screen (massive click rate—players hate leaving 3x money behind).
+   * *Cloud Save*: Stores player level, coin count, and unlocked guns via `CrazyGames.SDK.data`.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Player & Track)**: Create a 3D or 2.5D straight track. Gun moves forward at constant speed and steers smoothly with pointer coordinates. Gun continuously fires bullets forward.
+* **Milestone 2 (Math Gates & Logic)**: Spawn procedural gates on track. Detect bullet collision with gates to increase/decrease the gate's value; detect player passing through gate to update active gun stats (`fireRate`, `bulletCount`).
+* **Milestone 3 (Destructible Obstacles & Finish Line)**: Add HP blocks that shrink/flash when shot. Add the End-Vault sequence where your final built gun shoots down multiplier vaults.
+* **Milestone 4 (Lobby & Upgrade Economy)**: Build the HTML/CSS overlay menu with 3 upgrade buttons (Damage, Fire Rate, Income) funded by collected coins.
+* **Milestone 5 (CrazyGames SDK Hookup)**: Hook up `gameplayStart()`, `gameplayStop()`, the 3x rewarded ad button, and `SDK.data` cloud save.
+* **Milestone 6 (Polish & Juice)**: Screen shake when shooting the vaults, floating damage text (`+10`, `CRIT!`), glowing neon bullet materials, and punchy gunshot sounds.
+
+---
+
+# OPTION 2: *OUTBREAK: 10-MINUTE SURVIVOR* (Auto-Shooting Zombie Arena)
+
+> **The 2-Second Concept**: You are a lone survivor in a fenced city square. You only **MOVE** (WASD or Joystick). Your character automatically shoots at the nearest zombies. Dead zombies drop glowing green XP gems. Fill the XP bar → choose 1 of 3 weapon upgrades. Survive for 10 minutes until the helicopter lands.  
+> **Why Anyone Understands It**: You literally only control movement. You never have to aim or press fire. Just avoid touching enemies.
+
+```
+[MAIN MENU] ──> [ARENA BATTLE (0-10 min)] ──> [LEVEL UP (Pick 1 of 3)] ──> [EXTRACTION / DEATH]
+                                                     ↑                         │
+                                                     └── Collect XP Gems ──────┘
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: WASD / Arrow Keys on PC, Virtual Touch Joystick on Mobile. Auto-target & auto-fire.
+2. **Enemies (5 Types)**:
+   * *Slow Walkers* (Minute 0–3): Basic cannon fodder.
+   * *Fast Crawlers* (Minute 3–5): Rush the player, low HP.
+   * *Armored Riot Zombies* (Minute 5–7): High HP, block bullets.
+   * *Spitters* (Minute 7–9): Ranged acid attacks you must dodge.
+   * *Goliaths (Bosses at Minute 3, 6, 9)*: Giant brutes with charge attacks.
+3. **Weapon & Ability Synergies (Choose 1 of 3 on Level Up)**:
+   * *Auto-Pistol / Shotgun*: Fires spreads in front.
+   * *Rotating Energy Shields*: 2 to 4 glowing orbs spinning around you that shred anything getting too close.
+   * *Lightning Drone*: Periodically strikes 3 random enemies on screen.
+   * *Molotov Cocktail*: Drops fire pools on the floor that burn chasing zombies.
+   * *Stat Buffs*: +15% Move Speed, +20% Pickup Radius (Magnet), +10% Max HP.
+4. **Permanent Base Camp (Lobby Menu)**:
+   * Coins collected from bosses buy permanent passive stats: +Health, +Armor, +Magnet Radius.
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the moment the survivor drops into the arena.
+   * *Midgame Ad*: Plays upon defeat or successful extraction (never interrupts during the 10-minute battle!).
+   * *Rewarded Ad*: **"Emergency Defibrillator (Revive)"**—offers 1 second chance per run with 3 seconds of invulnerability when health reaches 0.
+   * *Cloud Save*: Stores high score time, permanent base camp unlocks, and total zombie kills.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Player Movement & Spawner)**: Top-down camera. Smooth 8-directional movement. Spawner generates zombies outside the screen boundaries that march directly toward player coordinates.
+* **Milestone 2 (Auto-Aim & Combat)**: Script weapon to find the closest zombie in range, rotate, and fire projectiles. Implement zombie death and drop glowing XP gem objects.
+* **Milestone 3 (Level Up Card System)**: When player collides with gems, fill an XP bar. When full: pause game loop, display an interactive modal with 3 random perk cards (e.g., "+1 Shield Orb", "+20% Fire Rate"), and apply selected perk.
+* **Milestone 4 (Timer & Boss Waves)**: 10-minute countdown clock. Spawn mini-bosses at Minute 3, 6, and 9. At 10:00, spawn the extraction helicopter rescue zone.
+* **Milestone 5 (CrazyGames SDK)**: Hook up `gameplayStart()`, 1-time Revive Rewarded Ad, and `SDK.data` cloud save.
+* **Milestone 6 (Juice & Atmosphere)**: Blood splatter decals left on the ground, muzzle flash lights, zombie death groan sounds, and hit-stop pause on boss hits.
+
+---
+
+# OPTION 3: *JUNKYARD CLEANER 3D* (Arcade Idle / Vacuum Tycoon)
+
+> **The 2-Second Concept**: You drive a small vacuum truck in a massive scrap field. Suck up colorful metal scrap and trash blocks. Drive over the Crusher to convert trash into cash. Walk onto glowing buying pads ($100 for Faster Speed, $250 to Unlock New Yard).  
+> **Why Anyone Understands It**: You don't even need to shoot or dodge anything. You just drive around vacuuming things up and watching numbers go up. It is pure satisfying stress relief.
+
+```
+[VACUUM TRASH PILES] ──> [DRIVE TO CRUSHER] ──> [GET CASH] ──> [STEP ON UPGRADE TILES]
+         ↑                                                              │
+         └────────────────────── UNLOCK NEW ZONE ◄──────────────────────┘
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: WASD / Arrow Keys or Mouse Drag (PC) / Touch Drag (Mobile). 
+2. **Vacuum & Storage Loop**:
+   * Your truck has a **Storage Capacity** (starts at 20 cubes).
+   * Scrap cubes physically suck into your vacuum nozzle and stack up visibly on the back of your truck bed.
+   * When capacity is full ("BAG FULL!" text appears), you drive to the glowing **Drop Zone / Shredder**.
+   * Cubes shoot into the shredder, and stacks of paper cash pop out into your money counter.
+3. **Zone Progression (3 Distinct Yards)**:
+   * *Yard 1: Plastic & Scrap Metal* (Earns $1/cube)
+   * *Yard 2: Car Demolition Lot* (Earns $5/cube, requires $1,000 to unlock gate)
+   * *Yard 3: Aircraft Graveyard* (Earns $25/cube, requires $5,000 to unlock gate)
+4. **Upgrade Pads (Walk onto pad to spend money)**:
+   * **Vacuum Width / Suction Power**: Sucks up wider piles faster.
+   * **Truck Capacity**: Increases max inventory (20 → 50 → 150 → 500).
+   * **Movement Speed**: Faster truck speed.
+   * **Hire AI Helpers**: Autonomous mini-cleaner bots that gather scrap and deposit it for you.
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the moment the truck starts rolling.
+   * *Midgame Ad*: Plays when unlocking a major new gate/yard (every 3+ minutes).
+   * *Rewarded Ad*: **"Super Vacuum (2-Minute Boost)"**—infinite backpack capacity + 2x vacuum speed for 120 seconds.
+   * *Banner Ads*: Static 300x250 banner placed neatly near the top-right upgrade zone.
+   * *Cloud Save*: Stores truck stats, unlocked yards, and total cash balance.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Truck Movement & Scrap Grid)**: Smooth arcade vehicle physics. Spawn a grid of 100 colorful scrap cubes with simple bounding box collision.
+* **Milestone 2 (Suction Physics & Backpack Stacking)**: When truck is near scrap, pull cubes toward nozzle using `lerp`. When collected, attach cube to a grid layout on the truck bed and increment inventory count.
+* **Milestone 3 (Unload Station & Currency)**: Create a designated Unload Zone tile. When truck enters, transfer cubes off the truck into the shredder one by one, play coin sound, and add cash.
+* **Milestone 4 (Interactive Purchase Pads)**: Create interactive circular floor pads with floating prices (`[ Speed: $200 ]`). When player stands on pad, deduct cash gradually and apply upgrade.
+* **Milestone 5 (Yard Expansion & AI Helpers)**: Add a locked gate that opens when the player fills a $1,000 buy-pad, revealing Yard 2. Add 1 AI helper bot that loops: wander → vacuum → drop off.
+* **Milestone 6 (CrazyGames SDK & Juice)**: Hook up `SDK.data` cloud save, the 2-Minute Frenzy Rewarded Ad, bouncy scaling on collected cubes, and satisfying pop/cash register sounds.
+
+---
+
+# Comparison Matrix: Which One Should You Pick?
+
+| Feature | Option 1: Bullet Forge | Option 2: Outbreak Survivor | Option 3: Junkyard Cleaner |
+| :--- | :--- | :--- | :--- |
+| **Complexity to Build** | **Low** (Easiest & Fastest) | **Medium** (Needs simple enemy AI) | **Medium** (Needs grid inventory) |
+| **Playtime Potential** | 8 – 12 minutes | 15 – 25 minutes | **20 – 35 minutes** (Highest) |
+| **Instant Understanding** | **1 second** (Steer Left/Right) | **2 seconds** (Walk & Dodge) | **2 seconds** (Vacuum & Drop) |
+| **Visual Style Needed** | Bright neon WebGL or 2D | Gritty 2D / 2.5D with blood/lights | Clean, colorful low-poly 3D |
+| **CrazyGames Match** | High viral runner category | Massive roguelite demand | Highest retention category |
+
+### My Recommendation
+* **If you want the fastest, cleanest build that you can finish in one straight push**: Pick **Option 1 (Bullet Forge)**. It has the simplest math logic, only 1 axis of control, and is universally viral.
+* **If you want the highest daily playtime (15+ mins) to crush CrazyGames KPIs**: Pick **Option 2 (Outbreak Survivor)**.
+
+Which of these three fits your vision best? Tell me your pick, and we will immediately write the clean, production-ready foundation for it!The user's feedback indicates the previous game concepts were too complex or unclear for easy understanding. The focus shifts to proposing simpler, more easily grasped game ideas, along with complete milestone breakdowns. Aim for concepts that can be built entirely in one iteration, aligning with user's expressed needs.
+
+
+Analyzing current CrazyGames trends, hypercasual weapon crafting/runner games seem to meet the simplicity and addictive requirements.  Focusing on a core loop combining weapon crafting, obstacle courses, and incremental upgrades could provide the desired "one-second" understanding. The roadmap will emphasize iterative development from start menu to final screen with CrazyGames SDK integration.
+
+
+Considering the simplicity and CrazyGames success criteria, the "weapon crafting/runner," "zombie survival," and "physics destruction" genres appear most promising. Each features core mechanics readily grasped: running, shooting, building destruction. Focusing on these three, I can assess their potential for rapid prototyping and iterative improvement.
+
+
+Analyzing three game ideas based on CrazyGames suitability: "Bullet Forge," "Outbreak," and "Scrap Tycoon." Each presents distinct gameplay loops and visual styles. The goal is to identify a concept that is quickly understood and can be built efficiently.
+
+The concepts are intended for iterative development, starting with core mechanics and expanding based on user feedback. The core mechanics are "Bullet Forge" (runner/merging), "Outbreak" (survivor), and "Scrap Tycoon" (vacuum/idle). "Bullet Forge" and "Outbreak" align better with immediate action and easy understanding compared to "Scrap Tycoon."
+
+
+2(bot-6be7b470-e7b4-478c-ab78-f0278e53c615BbYou are 100% right. If a game needs a manual or a complicated explanation, casual web players leave within 5 seconds. 
+
+The top-earning games on CrazyGames are **stupidly simple to understand**: you look at the screen for 2 seconds, and you immediately know what to do, yet you end up playing for 45 minutes because the progression loop is addictive.
+
+Here are **3 crystal-clear, proven, multi-million-play web game concepts**. For each one, I have mapped out the **entire game scope, every screen, every mechanic, and an exact milestone roadmap** so you know every single moving part before writing a line of code.
+
+---
+
+# OPTION 1: *BULLET FORGE* (Weapon Evolution / Math-Gate Runner)
+
+> **The 2-Second Concept**: Your gun glides forward automatically. You only steer **Left and Right**. Shoot incoming crates and pass through blue math gates (`+5 Fire Rate`, `x2 Bullets`) while dodging red gates (`-50 Damage`). At the finish line, unleash all your bullets into a giant gold vault.  
+> **Why Anyone Understands It**: There are zero tutorial popups needed. Blue numbers = good. Red numbers = bad. Shoot target = earn coins.
+
+```
+[START MENU] ──> [RUNNER TRACK (30-45s)] ──> [VAULT BLAST FINALE] ──> [REWARD/UPGRADE]
+                                                                          │
+                                                                          └──> [NEXT LEVEL]
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: Mouse drag or A/D keys (PC) / Touch drag (Mobile) to steer left/right. Auto-fires continuously.
+2. **Track Elements**:
+   * **Math Gates**: Floating energy gates. Blue (`+10 Fire Rate`, `x2 Barrels`, `+20 Range`), Red (`-5 Fire Rate`, `÷2 Barrels`).
+   * **Destructible Blocks**: Numbered obstacle blocks (e.g., "50 HP"). Shooting them down gives cash and clears the path.
+   * **Money Piles**: Glowing cash scattered on lanes to steer into.
+3. **Finish Line (The Vault Blast)**:
+   * The track ends at a row of 10 armored bank vaults with increasing multipliers ($1.5x$, $2x$, $5x$, $10x$).
+   * Your gun unleashes maximum rapid-fire with whatever stats you built during the run to break as many vaults as possible before running out of distance.
+4. **Armory & Permanent Upgrades (Lobby Menu)**:
+   * **Starting Fire Rate** (Cost: Coins)
+   * **Starting Bullet Damage** (Cost: Coins)
+   * **Income Multiplier** (Cost: Coins)
+   * **10 Unlockable Guns** (Pistol → Dual Uzis → Shotgun → Minigun → Plasma Cannon).
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the exact millisecond the gun starts moving down the runway.
+   * *Midgame Ad*: Shows after every 3 levels during the transition screen (respects the 3-minute cooldown).
+   * *Rewarded Ad*: **"3x Vault Cash"** button on the victory screen (massive click rate—players hate leaving 3x money behind).
+   * *Cloud Save*: Stores player level, coin count, and unlocked guns via `CrazyGames.SDK.data`.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Player & Track)**: Create a 3D or 2.5D straight track. Gun moves forward at constant speed and steers smoothly with pointer coordinates. Gun continuously fires bullets forward.
+* **Milestone 2 (Math Gates & Logic)**: Spawn procedural gates on track. Detect bullet collision with gates to increase/decrease the gate's value; detect player passing through gate to update active gun stats (`fireRate`, `bulletCount`).
+* **Milestone 3 (Destructible Obstacles & Finish Line)**: Add HP blocks that shrink/flash when shot. Add the End-Vault sequence where your final built gun shoots down multiplier vaults.
+* **Milestone 4 (Lobby & Upgrade Economy)**: Build the HTML/CSS overlay menu with 3 upgrade buttons (Damage, Fire Rate, Income) funded by collected coins.
+* **Milestone 5 (CrazyGames SDK Hookup)**: Hook up `gameplayStart()`, `gameplayStop()`, the 3x rewarded ad button, and `SDK.data` cloud save.
+* **Milestone 6 (Polish & Juice)**: Screen shake when shooting the vaults, floating damage text (`+10`, `CRIT!`), glowing neon bullet materials, and punchy gunshot sounds.
+
+---
+
+# OPTION 2: *OUTBREAK: 10-MINUTE SURVIVOR* (Auto-Shooting Zombie Arena)
+
+> **The 2-Second Concept**: You are a lone survivor in a fenced city square. You only **MOVE** (WASD or Joystick). Your character automatically shoots at the nearest zombies. Dead zombies drop glowing green XP gems. Fill the XP bar → choose 1 of 3 weapon upgrades. Survive for 10 minutes until the helicopter lands.  
+> **Why Anyone Understands It**: You literally only control movement. You never have to aim or press fire. Just avoid touching enemies.
+
+```
+[MAIN MENU] ──> [ARENA BATTLE (0-10 min)] ──> [LEVEL UP (Pick 1 of 3)] ──> [EXTRACTION / DEATH]
+                                                     ↑                         │
+                                                     └── Collect XP Gems ──────┘
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: WASD / Arrow Keys on PC, Virtual Touch Joystick on Mobile. Auto-target & auto-fire.
+2. **Enemies (5 Types)**:
+   * *Slow Walkers* (Minute 0–3): Basic cannon fodder.
+   * *Fast Crawlers* (Minute 3–5): Rush the player, low HP.
+   * *Armored Riot Zombies* (Minute 5–7): High HP, block bullets.
+   * *Spitters* (Minute 7–9): Ranged acid attacks you must dodge.
+   * *Goliaths (Bosses at Minute 3, 6, 9)*: Giant brutes with charge attacks.
+3. **Weapon & Ability Synergies (Choose 1 of 3 on Level Up)**:
+   * *Auto-Pistol / Shotgun*: Fires spreads in front.
+   * *Rotating Energy Shields*: 2 to 4 glowing orbs spinning around you that shred anything getting too close.
+   * *Lightning Drone*: Periodically strikes 3 random enemies on screen.
+   * *Molotov Cocktail*: Drops fire pools on the floor that burn chasing zombies.
+   * *Stat Buffs*: +15% Move Speed, +20% Pickup Radius (Magnet), +10% Max HP.
+4. **Permanent Base Camp (Lobby Menu)**:
+   * Coins collected from bosses buy permanent passive stats: +Health, +Armor, +Magnet Radius.
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the moment the survivor drops into the arena.
+   * *Midgame Ad*: Plays upon defeat or successful extraction (never interrupts during the 10-minute battle!).
+   * *Rewarded Ad*: **"Emergency Defibrillator (Revive)"**—offers 1 second chance per run with 3 seconds of invulnerability when health reaches 0.
+   * *Cloud Save*: Stores high score time, permanent base camp unlocks, and total zombie kills.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Player Movement & Spawner)**: Top-down camera. Smooth 8-directional movement. Spawner generates zombies outside the screen boundaries that march directly toward player coordinates.
+* **Milestone 2 (Auto-Aim & Combat)**: Script weapon to find the closest zombie in range, rotate, and fire projectiles. Implement zombie death and drop glowing XP gem objects.
+* **Milestone 3 (Level Up Card System)**: When player collides with gems, fill an XP bar. When full: pause game loop, display an interactive modal with 3 random perk cards (e.g., "+1 Shield Orb", "+20% Fire Rate"), and apply selected perk.
+* **Milestone 4 (Timer & Boss Waves)**: 10-minute countdown clock. Spawn mini-bosses at Minute 3, 6, and 9. At 10:00, spawn the extraction helicopter rescue zone.
+* **Milestone 5 (CrazyGames SDK)**: Hook up `gameplayStart()`, 1-time Revive Rewarded Ad, and `SDK.data` cloud save.
+* **Milestone 6 (Juice & Atmosphere)**: Blood splatter decals left on the ground, muzzle flash lights, zombie death groan sounds, and hit-stop pause on boss hits.
+
+---
+
+# OPTION 3: *JUNKYARD CLEANER 3D* (Arcade Idle / Vacuum Tycoon)
+
+> **The 2-Second Concept**: You drive a small vacuum truck in a massive scrap field. Suck up colorful metal scrap and trash blocks. Drive over the Crusher to convert trash into cash. Walk onto glowing buying pads ($100 for Faster Speed, $250 to Unlock New Yard).  
+> **Why Anyone Understands It**: You don't even need to shoot or dodge anything. You just drive around vacuuming things up and watching numbers go up. It is pure satisfying stress relief.
+
+```
+[VACUUM TRASH PILES] ──> [DRIVE TO CRUSHER] ──> [GET CASH] ──> [STEP ON UPGRADE TILES]
+         ↑                                                              │
+         └────────────────────── UNLOCK NEW ZONE ◄──────────────────────┘
+```
+
+### Complete Game Scope (What the Full Game Contains)
+1. **Controls**: WASD / Arrow Keys or Mouse Drag (PC) / Touch Drag (Mobile). 
+2. **Vacuum & Storage Loop**:
+   * Your truck has a **Storage Capacity** (starts at 20 cubes).
+   * Scrap cubes physically suck into your vacuum nozzle and stack up visibly on the back of your truck bed.
+   * When capacity is full ("BAG FULL!" text appears), you drive to the glowing **Drop Zone / Shredder**.
+   * Cubes shoot into the shredder, and stacks of paper cash pop out into your money counter.
+3. **Zone Progression (3 Distinct Yards)**:
+   * *Yard 1: Plastic & Scrap Metal* (Earns $1/cube)
+   * *Yard 2: Car Demolition Lot* (Earns $5/cube, requires $1,000 to unlock gate)
+   * *Yard 3: Aircraft Graveyard* (Earns $25/cube, requires $5,000 to unlock gate)
+4. **Upgrade Pads (Walk onto pad to spend money)**:
+   * **Vacuum Width / Suction Power**: Sucks up wider piles faster.
+   * **Truck Capacity**: Increases max inventory (20 → 50 → 150 → 500).
+   * **Movement Speed**: Faster truck speed.
+   * **Hire AI Helpers**: Autonomous mini-cleaner bots that gather scrap and deposit it for you.
+5. **CrazyGames Ad Integration**:
+   * *Gameplay Start*: Triggers the moment the truck starts rolling.
+   * *Midgame Ad*: Plays when unlocking a major new gate/yard (every 3+ minutes).
+   * *Rewarded Ad*: **"Super Vacuum (2-Minute Boost)"**—infinite backpack capacity + 2x vacuum speed for 120 seconds.
+   * *Banner Ads*: Static 300x250 banner placed neatly near the top-right upgrade zone.
+   * *Cloud Save*: Stores truck stats, unlocked yards, and total cash balance.
+
+### Complete Milestone Roadmap (Build in Order)
+* **Milestone 1 (Truck Movement & Scrap Grid)**: Smooth arcade vehicle physics. Spawn a grid of 100 colorful scrap cubes with simple bounding box collision.
+* **Milestone 2 (Suction Physics & Backpack Stacking)**: When truck is near scrap, pull cubes toward nozzle using `lerp`. When collected, attach cube to a grid layout on the truck bed and increment inventory count.
+* **Milestone 3 (Unload Station & Currency)**: Create a designated Unload Zone tile. When truck enters, transfer cubes off the truck into the shredder one by one, play coin sound, and add cash.
+* **Milestone 4 (Interactive Purchase Pads)**: Create interactive circular floor pads with floating prices (`[ Speed: $200 ]`). When player stands on pad, deduct cash gradually and apply upgrade.
+* **Milestone 5 (Yard Expansion & AI Helpers)**: Add a locked gate that opens when the player fills a $1,000 buy-pad, revealing Yard 2. Add 1 AI helper bot that loops: wander → vacuum → drop off.
+* **Milestone 6 (CrazyGames SDK & Juice)**: Hook up `SDK.data` cloud save, the 2-Minute Frenzy Rewarded Ad, bouncy scaling on collected cubes, and satisfying pop/cash register sounds.
+
+---
+
+# Comparison Matrix: Which One Should You Pick?
+
+| Feature | Option 1: Bullet Forge | Option 2: Outbreak Survivor | Option 3: Junkyard Cleaner |
+| :--- | :--- | :--- | :--- |
+| **Complexity to Build** | **Low** (Easiest & Fastest) | **Medium** (Needs simple enemy AI) | **Medium** (Needs grid inventory) |
+| **Playtime Potential** | 8 – 12 minutes | 15 – 25 minutes | **20 – 35 minutes** (Highest) |
+| **Instant Understanding** | **1 second** (Steer Left/Right) | **2 seconds** (Walk & Dodge) | **2 seconds** (Vacuum & Drop) |
+| **Visual Style Needed** | Bright neon WebGL or 2D | Gritty 2D / 2.5D with blood/lights | Clean, colorful low-poly 3D |
+| **CrazyGames Match** | High viral runner category | Massive roguelite demand | Highest retention category |
+
+### My Recommendation
+* **If you want the fastest, cleanest build that you can finish in one straight push**: Pick **Option 1 (Bullet Forge)**. It has the simplest math logic, only 1 axis of control, and is universally viral.
+* **If you want the highest daily playtime (15+ mins) to crush CrazyGames KPIs**: Pick **Option 2 (Outbreak Survivor)**.
+
+Which of these three fits your vision best? Tell me your pick, and we will immediately write the clean, production-ready foundation for it!Z`r==
+=i}
+;BU
+>5h@fn{8ʫUJˬ>L,tt,R*qp/skIɌB#A\s6zG4ǹkEƕ|'5C72y
+y~kpŒ0r	cZ -sH~U<\y<Y9T)6jyL]`ZW,'6hxs U'џ(κ1]+ܪ|[W1rw8U/=4"Pvef9KGE'K90V1*wR!=&OW@ ]J0>jc\gW#cq_K^BRS{kԣ"JcAUGo	e̚iC0R{VA\v2D	U&ߓͻ ETԺC?"ƭw!W433(k&jmqQV3.ؘ;/Vޏ]v_m}8z垿IHMӻ<lÕ5̩@Q+FR؀9_F?Ei͖|=0=G>(i[7bBRRoc.yEbk[^N{;V.n$+%G	zvB}{O\GXj<(0P*OE۲Zu
+8qzOQRMwJױ,ism,H`,?=_2>?B2Wyy$=,*װ$+2TQf0".	~?AGv8uKb6ψ\_2$THEF@A	m; AL4JN?)p>޴.lI@p(iy$|_Gc_yxESkGlUcaq=	.5b?dN[0s<3=kG; My"f2IaEBJ]'ċj?}o	PW /*:&c2šTwCCl[y41O0B)bJj֩6u-{=rwv.2OR7 <q$~90Aji7$kofȸɥ,$L mY"V_16-Wh*g+5BBOcTeҰͰEJ0ᣟ8ͱhCR$<y}_5cgS>a뾦O>ԱH\/z>UdAJ 獮qW.]f/'2<?(Dxn++Kqۜx*兔GZ/a*۪%jp'8}%ΑA7|GӀUwT+V@rgkDk
+2CV
+o}\HIj6k>v=}vSX6촓䀧"ؚU;$evk2,P_|Pz铨z5ݶ69򽁒%4[ZXFy8÷L8QU_63>lw>*oY#ҮU tRX|n/\ A$ѷy#mOPڶa0 {i*EiaUr)eryeX!>p8ͧSK0vj%ŅrS֧A%T9JVhg}+:4HU
+#|ϕ./B#gx'#jꟴ4	DEʯljMyDrv6h8J΂ֆb&wABB*`~.ec~#?oNq,{_
+w(Ť5\7ƒtmRPW&q:?N@M r/zhI;nTB 'R2enZGIL1hk\,x2-	P򖳆Br+R%sMpL&S0رhZg	ouU(WX˦9A7d!c-p(Fcǜ#yO<XkaPr_,\h\ZKLݯ)6^m.t9	azw^ ҵ SpALi  reSR8sO۲mЄ;yMvpC_*QJ&{(A͓ ڌ/qdw4?nk跐bo!Cf	]@b3j^*g}VX}ڕ'\ӓ$Qg B,+JD /0fè5<E{Ll+>0h./>p̴qv㻅)|ݱnsED5EmjJǹ ]oGA*#8R,"ԦW!&}F >a"8[O5ᴑwovͩ{dP鴄{F-ߖm).B}_@
+(z-'L_ڡ' 鋮DF:EƄQrBn$9Zp%\:u2=`Ʃ%nTRvBG7n,Mm:1EQ{Kҟcl>mJY$,Czo9<@"hOYbҒå.R9OÇ:'!fL`r u~E~籚)
+7hk:ǎbo4!HDl\%ָ*NqąڥNpgݲf*}GכtlF+Ѝ.Nu*l~67%mNZlwn/Yڸ1ϐ¤Hmߏ8/t隹JݿN<ًtJR͵1/_ln[eM?4=2^vڐ&lQ W>zsU[48AxH4hs2K5Aa$H7v<V<0hrOIzR;F6ix\TW >Sx4zmNyͯ)ëIi4l@'n-^'xpn`U1C[8ZzsgԋXiPVi&:KcF	L`,\܌ OFFKa[\%)UIFD	evHP|;x*ӞP
+cs"IY|{8!|M]H6`l	Fu\ֿE'\4%-0٠>Jt䍈U<z )}५w2IWNm_den)
+{haZqI#x_pزn-N!T6|"7ǋ@\C[Z+bXվǵ{
+D2 Jz#&Ff<O뗬RR0/0uHZV^E<rr-.X4T5D)<$h폓qYF@ʒiKPyQJ*T?g~#
+f5ѡX#GK~]3V\!A_ ЪyOjo|u  ։|.[jQm+~\Da{R"p )s,>X>@ iIemCN97IԶï{`-Ɛ~~o/f\Òުh<߬9kw߳MIq5R#*3	9&gs'B=8*G,Ogba䒹iѶ̦޽4c	(QT<gѫ]KJ	F/P	LN5]w4+1SmCI"ʥDQ
+ 1q'-MP1ɲJ그PxL4,,ZWy.1=&8[sb}[Qnx	B{8NpqN0;ñlԋ32gGoq	b=PH~đV1]$xp#η}m͟H!ӃysWkQWW5ů x/gU8U1L4SP|`)HW|%DÏ6 l{VPB[ݠTTKmU~Kg7-̩Jغw/9srHxo$-{wd9f?ļ{_6tҵ	x#YoI.GPܭzf8?)Լe }Z˕ x4k.OiLyN:0XCNt.n_b|~E=Ta=K,z"6JHftq9}߉,dDAanw@F߉&AalM'{N訰ɤdMUt?q>i*kGx.fga&B!w?Kg.mxcUVE!.S0ٿ[EeJX1[S[^aWE"r.|RR[JK`Ym݀mF=ZiuHl!$Sq?*ʃX<P]g)mbtDT"4h}$\<`]g&&>g@#%MB4M:*|yړr5	/o}pm;S*ID!۳r5J-0*Ok= &(`# <M!^c)H7Ng+׃w7jYF tz6d*|0cXT`rUo
+BgjO|qb10yXm[to:p˔|6glRy`H*JOYs9e60BC|2lo(Wd?-j=Aa($3d}Pҕ/,$E֘hc<cf}A{k4nToǶ=7+eg~q} p0nǜӶÄzqҼI1oWY]CHзTw2VzkaZd6U!Qp4Z=l:!+VfƥK?SNiy@g,&=LTdh%%3C?,u"Nt{yUZ:&=QET'y+H
+L;5$hԬ#%	'/RhoV-w1-HH|Уߓ[S|OQK.,P<g<tC$YΙm,c6W*`pOZEW^ja.^"x|$Sq+bؼcx3PtNO5-*3a	.|3u~0*9AcbyxRJtmѝ,=!:-aՂc)	4nORn~x~o{K3M4~iEeXdh2]̉L0ɇ*dIlFς`89<xpEAEe^C'H_ɦlx[iG()KT,ѺQxÓLHHt5n10, D/yᛗZ-܉L}j/wOB+ڪ1-Ť^?8k>
+!Ga#Ē2q:!Ԉq,Iu1zu	yGh.i|E~++IBb6O9á
+oޕYh4Y7d'6:W~, ɀY#+r%6D:05`rpRICr8\\Д6^mjF˦Q<~.ٙ P 6v6V=0-.)te%
+4oko7x4ܟU>본֔IgQ lH.'&&od5旘Ǥ
+?u1%P{۪׸f")t	wʮTɿl08_\Fglg/mTSH<c緖86K6
+7*Yz1ꠐ4GiO_7776=r,mLK#h'6߲WA,C!**7ldx*QQO2J5Ck<	"~3`5VfXrTUIn}7:( {_vwӫRݥH
+RgĆU7㫹9R:Niį+sre:7[2FXٍ]G8
+Rݝ*霒V[ n4ѵ%t?kħ,Fq0![Y-")&,mXga*4W\&X2G_[@aaPq5m	Yapyd#ߡXcCQj>QnbC"+;t{BOsoʥQm֮fkpX	jF>+1"Jjq&GDyW7Ůf"iw=8	me!1"T5)FmSw5o$6/NV1<@7gi*.`;}K4t,iƏc?GI	Fy`6G3fF-|%}vb;E}ÑGa١D쟠+$skmIjQghi((m1e&T[ h?,X-AMn|bo=,MI̱y @k\JoϞE`sf޸s?)~JU&ECvTp7BvshU<mfލpaנU_:^i@g"	m$!	:ˮD-G(crTnwPr5fXL j9d@@z੥Ч -ED1cC.Y}>,ЛLsoqs}7R*PD}Q"%%:l59Mbanht_[Q4hHu9SbOXuV1aɦ'3f-AU-@DdΊ}OR52W789nIy3R \h:uvնZEX[~A9dnDI|8H(zt_pWp,.,f֤î!m/vb( '5JѦC>Hy}xftuؐpYndb(
+JKց\|{lN&6H'n)(bl}	LvDEc:Y}-p=+dpOӛuq *`j'ϕ,emX6[NO P~n7>;`2|G;ɧ`"OH͚bo/vT`VtrvLK)ssc@ v\
+!ʯ)&_]|Y߽bxӛh` ok=?ҿ"
+z'2.'Q͞V\$Mok=
