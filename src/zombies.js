@@ -72,7 +72,7 @@ const ZOMBIE_TYPES = {
 // emissive lift makes the texture readable in the dark without making
 // them glow. setFlash() restores this value (not black) when a hit flash
 // ends, so the lift is never lost after the first hit.
-const ZOMBIE_BASE_EMISSIVE = 0x333333;
+const ZOMBIE_BASE_EMISSIVE = 0x1a1a1a;
 
 // Unique animation clips (shared across types). Key = clip name used in
 // ZOMBIE_TYPES, value = FBX file under assets/zombies/fbx/anim/.
