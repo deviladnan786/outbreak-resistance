@@ -54,6 +54,17 @@ class PlayerOperator {
     this.staminaDrain = 24.0;
     this.staminaRecover = 32.0;
     this.staminaDepleted = false;
+    // v3.18 — player death flow: isDying is set by ZombieManager the frame
+    // HP hits 0; the death animation plays first and the game-over popup
+    // only shows after it (see updateSurvivorKinematics death branch).
+    this.isDying = false;
+    this.isDead = false;
+    this._deathTimer = 0;
+    this._deathOverlayShown = false;
+    // v3.18 — hit-reaction one-shot: _hitReactT ticks down only while the
+    // kinematics branch is actually playing the clip.
+    this._hitReactT = 0;
+    this._hitReactClip = 'hitReaction';
 
     // State Flags
     this.isSprinting = false;
@@ -988,14 +999,42 @@ class PlayerOperator {
       wallRunLeft: 'assets/left Wall Run.fbx',
       wallRunRight: 'assets/right Wall Run.fbx',
       wallFlip: 'assets/Run To Flip.fbx',
-      flyingKick: 'assets/Flying Kick.fbx'
+      flyingKick: 'assets/Flying Kick.fbx',
+
+      // v3.18 — Mixamo hit/death clips (animation-only FBX, extracted from
+      // the pack-demo downloads; same pipeline as the zombie clips).
+      // hitReaction = armed hit, headHit = melee-mode hit, dyingKneel =
+      // the full player-death animation (kneeling collapse).
+      hitReaction: 'assets/zombies/fbx/anim/hit_reaction.fbx',
+      headHit: 'assets/zombies/fbx/anim/head_hit.fbx',
+      dyingKneel: 'assets/zombies/fbx/anim/dying_kneel.fbx'
     };
+
+    // Leon's skeleton (28 joints, from leon_welded.glb) — FBXLoader
+    // normalizes bone names to 'mixamorigX' (no colon). The three new
+    // Mixamo clips carry tracks for bones Leon does NOT have (full finger
+    // sets, HeadTop_End, Toe_End); in r128 an unbound track falls back to
+    // the mixer ROOT and would twist/scale the whole character, so those
+    // tracks are dropped at load (see below).
+    const LEON_BONES = new Set([
+      'mixamorigHead', 'mixamorigHips', 'mixamorigLeftArm', 'mixamorigLeftFoot',
+      'mixamorigLeftForeArm', 'mixamorigLeftHand', 'mixamorigLeftHandIndex1',
+      'mixamorigLeftHandIndex2', 'mixamorigLeftHandIndex3', 'mixamorigLeftLeg',
+      'mixamorigLeftShoulder', 'mixamorigLeftToeBase', 'mixamorigLeftUpLeg',
+      'mixamorigNeck', 'mixamorigRightArm', 'mixamorigRightFoot',
+      'mixamorigRightForeArm', 'mixamorigRightHand', 'mixamorigRightHandIndex1',
+      'mixamorigRightHandIndex2', 'mixamorigRightHandIndex3', 'mixamorigRightLeg',
+      'mixamorigRightShoulder', 'mixamorigRightToeBase', 'mixamorigRightUpLeg',
+      'mixamorigSpine', 'mixamorigSpine1', 'mixamorigSpine2'
+    ]);
+    const hitClipKeys = new Set(['hitReaction', 'headHit', 'dyingKneel']);
 
     const singleShotActions = new Set([
       'wallFlip', 'flyingKick', 'rifleFire',
       'jumpUp', 'jumpDown',
       'turn90Left', 'turn90Right', 'crouchTurn90Left', 'crouchTurn90Right',
-      'deathFront', 'deathBack', 'deathRight', 'deathFrontHeadshot', 'deathBackHeadshot', 'deathCrouchHeadshot'
+      'deathFront', 'deathBack', 'deathRight', 'deathFrontHeadshot', 'deathBackHeadshot', 'deathCrouchHeadshot',
+      'hitReaction', 'headHit', 'dyingKneel'
     ]);
 
     for (const [key, path] of Object.entries(animMap)) {
@@ -1008,6 +1047,19 @@ class PlayerOperator {
 
             // Strip root translation track to ensure game physics manages player position & collisions cleanly
             clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position'));
+
+            // v3.18 BONE FILTER (new hit/death clips only): drop tracks for
+            // bones Leon doesn't have + 'Armature.*' root tracks (see
+            // LEON_BONES above — an unbound track would bind to the mixer
+            // root and twist the whole character).
+            if (hitClipKeys.has(key)) {
+              clip.tracks = clip.tracks.filter((t) => {
+                const dot = t.name.lastIndexOf('.');
+                const node = dot >= 0 ? t.name.slice(0, dot) : t.name;
+                if (node.startsWith('Armature')) return false;
+                return LEON_BONES.has(node);
+              });
+            }
 
             const action = this.mixer.clipAction(clip);
             if (singleShotActions.has(key)) {
@@ -1079,9 +1131,22 @@ class PlayerOperator {
   // ZombieManager.damagePlayer). Camera trauma shake + a brief backward
   // lean of the model, so the hit reads on screen and not just in the HP
   // bar. The flinch decays in update(); the shake decays in game.js.
+  // v3.18: ALSO plays a real Mixamo one-shot hit animation — 'hitReaction'
+  // with the rifle in hand, 'headHit' in melee mode (weapon on the back).
+  // The kinematics branch asserts the clip while _hitReactT runs, then
+  // locomotion resumes; the procedural flinch stays as well so the
+  // reaction reads even if a clip hasn't loaded yet.
   playHitReaction() {
     this.hitFlinchT = 0.25;
     if (window.game && window.game.addTrauma) window.game.addTrauma(0.45);
+    if (this.isDead || this.isDying) return;
+    const clipName = this.weaponLocation === 'BACK' ? 'headHit' : 'hitReaction';
+    const action = this.actions && this.actions[clipName];
+    if (!action) return;
+    this._hitReactClip = clipName;
+    const clip = action.getClip();
+    this._hitReactT = clip ? clip.duration : 0.5;
+    this.fadeToAction(clipName, 0.08);
   }
 
   updateSurvivorKinematics(delta, isMoving, input, aimPitch) {
@@ -1105,14 +1170,34 @@ class PlayerOperator {
       }
     }
 
-    // Death animation handler
+    // Death animation handler (v3.18): when HP hits 0, play the FULL
+    // 'dyingKneel' animation FIRST — the game-over popup waits until the
+    // clip finishes (clip duration + 0.3s), it is NOT shown the same frame
+    // HP hits 0. The player can't move or fire while dying (update()
+    // gates locomotion/weapon when isDead/isDying).
     if (this.hp <= 0 || this.isDead) {
       if (!this._deathTriggered) {
         this._deathTriggered = true;
         this.isDead = true;
-        const deathClips = ['deathFront', 'deathBack', 'deathRight', 'deathFrontHeadshot', 'deathBackHeadshot'];
-        const chosen = deathClips[Math.floor(Math.random() * deathClips.length)];
-        this.fadeToAction(chosen, 0.15);
+        if (this.actions && this.actions['dyingKneel']) {
+          this.fadeToAction('dyingKneel', 0.15);
+          const clip = this.actions['dyingKneel'].getClip();
+          this._deathTimer = (clip ? clip.duration : 2.0) + 0.3;
+        } else {
+          // Fallback: the old random rifle-pack death clips.
+          const deathClips = ['deathFront', 'deathBack', 'deathRight', 'deathFrontHeadshot', 'deathBackHeadshot'];
+          const chosen = deathClips[Math.floor(Math.random() * deathClips.length)];
+          this.fadeToAction(chosen, 0.15);
+          this._deathTimer = 2.0;
+        }
+      } else if (!this._deathOverlayShown) {
+        this._deathTimer -= delta;
+        if (this._deathTimer <= 0) {
+          this._deathOverlayShown = true;
+          const zm = window.game && window.game.zombieManager;
+          if (zm) zm.gameOver = true; // stop the swarm together with the overlay
+          if (window.game && window.game.onPlayerDeath) window.game.onPlayerDeath();
+        }
       }
       return;
     }
@@ -1122,13 +1207,19 @@ class PlayerOperator {
 
     // 1. Dynamic Animation Transitions with Mocap Clips & Procedural Stunts
     if (this.isWallRunning) {
-      // Procedural Prince of Persia Side Wall Run kinematics directly on Leon's skeleton!
-      // Legs angle and stick firmly to the vertical wall face with 22° athletic tilt
-      if (this.activeAction) {
-        this.activeAction.fadeOut(0.12);
-        this.activeAction = null;
+      // WALL RUN: use the real Mixamo mocap wall-run clips (feet plant on
+      // the wall, proper Prince of Persia pose). The old procedural pose
+      // bent the legs by hand and the feet clipped THROUGH the wall.
+      // The snap distance (0.5m) keeps the body close enough that the
+      // mocap feet reach the wall surface without going through it.
+      const clipName = this.wallRunSide === 'LEFT' ? 'wallRunLeft' : 'wallRunRight';
+      this.fadeToAction(clipName, 0.12);
+      // Keep the athletic lean into the wall on top of the mocap clip.
+      if (this.survivorModel) {
+        const isLeftWall = this.wallRunSide === 'LEFT';
+        this.survivorModel.rotation.z = isLeftWall ? -0.38 : 0.38;
+        this.survivorModel.rotation.x = 0.12;
       }
-      this.animateSurvivorWallRun();
     } else {
       if (this.survivorModel && (this.survivorModel.rotation.z !== 0 || this.survivorModel.rotation.x !== 0)) {
         this.survivorModel.rotation.z = 0;
@@ -1173,6 +1264,13 @@ class PlayerOperator {
             this.fadeToAction('idleAiming', 0.20);
           }
         }
+      } else if (this._hitReactT > 0) {
+        // HIT REACTION (v3.18): a real Mixamo one-shot hit animation, set
+        // by playHitReaction(). The timer only ticks while this branch
+        // runs, so a stunt in progress delays the reaction instead of
+        // eating it. When the timer ends, locomotion resumes below.
+        this._hitReactT -= delta;
+        this.fadeToAction(this._hitReactClip || 'hitReaction', 0.08);
       } else if (!this.isGrounded) {
         // Tactical Airborne Jumping (Mixamo jump up / loop / down)
         if (this.velocityY > 1.2) {
@@ -1631,6 +1729,13 @@ class PlayerOperator {
   // =========================================================================
   update(delta, input, environment, cameraMode) {
     this.cameraMode = cameraMode;
+    // DEAD / DYING (v3.18): no movement, no aiming, no firing while the
+    // death animation plays — only the kinematics (death clip) + HUD run.
+    if (this.hp <= 0 || this.isDead || this.isDying) {
+      this.updateOperatorKinematics(delta, input);
+      this.updateHUD();
+      return;
+    }
     this.handleLocomotion(delta, input, environment);
     this.handleAiming(delta, input);
     this.handleWeapon(delta, input);
@@ -2347,35 +2452,47 @@ class PlayerOperator {
     this.recoilRot *= Math.exp(-20.0 * delta);
 
     if (this.weaponLocation === 'BACK') {
-      // If the player clicks to FIRE while unarmed (after a punch) and is
-      // not mid-punch, draw the rifle automatically and let the fire code
-      // below run — punching must never lock the player out of shooting.
-      if (input.mouseLeftHeld && !this.isPunching && !this.isKicking && !this.isDropkicking) {
-        this.setWeaponLocation('HAND');
+      // MELEE MODE (weapon slung on back, boxing stance).
+      // E is the TOGGLE: press E again to EXIT melee and draw the rifle.
+      // (Previously E in melee just punched again, so there was no way out
+      // except Q — and Q felt unresponsive. Now E toggles out cleanly.)
+      if (input.keys['KeyE'] && !this._eMeleeConsumed && !this.isPunching) {
+        this._eMeleeConsumed = true;
+        this.userWeaponPreference = 'HAND';
         this.boxingCombatTimer = 0;
-        // fall through to the armed/fire section (do NOT return)
-      } else {
-        // UNARMED MODE: Left-Click or E triggers GTA-style punches with both hands!
-        const canPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
-        const punchTrigger = (input.mouseLeftHeld || input.keys['KeyE']) && canPunch;
-
-        if (punchTrigger && !this.isPunching) {
-          this.isPunching = true;
-          this.punchCombo = (this.punchCombo + 1) % 3; // 0 = Left Jab, 1 = Right Cross, 2 = Left Hook
-          const comboDurations = [0.38, 0.44, 0.46];
-          this.punchDuration = comboDurations[this.punchCombo];
-          this.punchTimer = this.punchDuration;
-          this.idleTimer = 0.0;
-          this.boxingCombatTimer = 2.0; // Maintain boxing stance briefly (was 5s — felt locked)
-
-          if (window.soundEngine && window.soundEngine.playPunch) {
-            window.soundEngine.playPunch();
-          }
-
-          this.performMeleeAttack();
+        this.isHolstering = true;
+        this.holsterTimer = this.holsterDuration;
+        this.holsterAction = 'DRAW';
+        this.holsterSwapped = false;
+        if (window.soundEngine && window.soundEngine.playWeaponSling) {
+          window.soundEngine.playWeaponSling();
+        }
+        if (window.game && window.game.notify) {
+          window.game.notify('DRAWING M4A1 // COMBAT READY');
         }
         return;
       }
+      if (!input.keys['KeyE']) this._eMeleeConsumed = false;
+      // UNARMED MODE: Left-Click triggers GTA-style punches with both hands!
+      const canPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
+      const punchTrigger = input.mouseLeftHeld && canPunch;
+
+      if (punchTrigger && !this.isPunching) {
+        this.isPunching = true;
+        this.punchCombo = (this.punchCombo + 1) % 3; // 0 = Left Jab, 1 = Right Cross, 2 = Left Hook
+        const comboDurations = [0.38, 0.44, 0.46];
+        this.punchDuration = comboDurations[this.punchCombo];
+        this.punchTimer = this.punchDuration;
+        this.idleTimer = 0.0;
+        this.boxingCombatTimer = 2.0; // Maintain boxing stance briefly (was 5s — felt locked)
+
+        if (window.soundEngine && window.soundEngine.playPunch) {
+          window.soundEngine.playPunch();
+        }
+
+        this.performMeleeAttack();
+      }
+      return;
     } else {
       // ARMED MODE: Pressing E directly transitions to melee punch!
       const canQuickPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
@@ -2438,7 +2555,9 @@ class PlayerOperator {
       if (dist <= 1.9) {
         toZombie.normalize();
         if (forward.dot(toZombie) > 0.35) {
-          zombie.takeDamage(45);
+          // v3.18: melee hits at chest height (zombie chest = +1.2m) so the
+          // hit-location reactions see an upper-body hit.
+          zombie.takeDamage(45, false, 45, zPos.y + 1.2);
           zPos.addScaledVector(forward, 0.45);
         }
       }
@@ -2640,7 +2759,9 @@ class PlayerOperator {
             const legHit = h.point.y < zb.scene.position.y + 0.9;
             const dmg = headshot ? 68 : 34;
             const bodyDmg = (legHit && !headshot) ? Math.round(dmg * 0.25) : dmg;
-            zb.takeDamage(bodyDmg, legHit, dmg);
+            // v3.18: pass the world hit height so takeDamage can play the
+            // right hit-location reaction (head / shoulder / groin).
+            zb.takeDamage(bodyDmg, legHit, dmg, h.point.y);
             if (window.showHitMarker) window.showHitMarker(headshot, zb.hp <= 0);
             if (window.soundEngine && window.soundEngine.playHit) window.soundEngine.playHit(headshot);
             this.spawnImpactSparks(h.point, 0xffcc44);

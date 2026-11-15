@@ -45,15 +45,13 @@ const ZOMBIE_TYPES = {
   prisoner: { // the ONE-HAND zombie (right hand is a stump, no fingers)
     file: 'assets/zombies/fbx/prisoner.fbx',
     speed: 1.25, hp: 55, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
-    chase: 'walk', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
+    chase: 'walk_zombie', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.45, attackDur: 0.9
   },
   zombiegirl: {
     file: 'assets/zombies/fbx/zombiegirl.fbx',
     speed: 1.6, hp: 45, dmg: 8, range: 1.4, radius: 0.4, xp: 10, legHp: 100,
-    // Her own walk: 'charge' — a faster, more aggressive stride, so she
-    // does not move identically to the prisoner/Romero shambler walk.
-    chase: 'charge', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
+    chase: 'walk_creeping', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.4, attackDur: 0.85
   },
   // --- fast (sprinter role) ---
@@ -101,12 +99,26 @@ const ZOMBIE_CLIPS = {
   crawl: 'crawl.fbx',
   run: 'run.fbx',
   lunge: 'lunge.fbx',
-  charge: 'charge.fbx',
   hit_feral: 'hit_feral.fbx',
   death_feral: 'death_feral.fbx',
   stomp: 'stomp.fbx',
   slam: 'slam.fbx',
   death_brute: 'death_brute.fbx',
+  // v3.18 — Mixamo hit/death/bite clips (animation-only FBX, extracted
+  // from the pack-demo downloads). Different walks per zombie: the
+  // prisoner shambles with 'walk_zombie' (Zombie Walking), the
+  // zombiegirl creeps with 'walk_creeping' (Creeping Zombie Walk) —
+  // 'charge' was REMOVED (never asked for, explicitly rejected).
+  hit_reaction: 'hit_reaction.fbx',
+  head_hit: 'head_hit.fbx',
+  shoulder_hit_fall: 'shoulder_hit_fall.fbx',
+  groin_hit: 'groin_hit.fbx',
+  zombie_dying: 'zombie_dying.fbx',
+  zombie_biting: 'zombie_biting.fbx',
+  dying_lying: 'dying_lying.fbx',
+  kip_up: 'kip_up.fbx',
+  walk_zombie: 'walk_zombie.fbx',
+  walk_creeping: 'walk_creeping.fbx',
   // Ragged Revenant's own retargeted clips (auto-rigged skeleton — the
   // shared clips collapse him). Extracted from the Mixamo FBX downloads.
   walk_revenant: 'walk_revenant.fbx',
@@ -168,6 +180,15 @@ class Zombie {
     this.attackCooldown = 0; // seconds before this zombie may swing again
     this.flash = 0;
     this.deathT = 0;
+    // v3.18 — 70% ZONE DAMAGE: hits to the upper body (shoulder) and the
+    // stomach/groin accumulate separately. When a zone has taken 70% of
+    // maxHp, the zombie plays that zone's fall animation and stands back
+    // up (the boss kip-ups instead). Thresholds re-arm after each fall.
+    this.upperDmg = 0;
+    this.groinDmg = 0;
+    this.nextUpperFallAt = 0.7 * this.maxHp;
+    this.nextGroinFallAt = 0.7 * this.maxHp;
+    this._hitAlt = 0; // alternates hit_reaction / cfg.hit so hits vary
 
     // Clone the template character. NOTE: plain scene.clone() SHARES the
     // skeleton with the template in three r128 (SkinnedMesh.copy just
@@ -251,7 +272,13 @@ class Zombie {
     this.actions = {};
     // 'lunge' is loaded too — it is the low crawl-attack clip (a crawling
     // zombie lunges forward while staying on the ground).
-    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge']) {
+    // v3.18: shared-skeleton zombies also build actions for the Mixamo
+    // hit/death/bite clips. The walker (Revenant) is EXCLUDED — shared
+    // clips collapse his auto-rigged skeleton, so he only ever plays his
+    // own retargeted clips.
+    const sharedExtra = this.typeKey === 'walker' ? [] :
+      ['hit_reaction', 'head_hit', 'shoulder_hit_fall', 'groin_hit', 'zombie_dying', 'zombie_biting', 'dying_lying', 'kip_up'];
+    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge', ...sharedExtra]) {
       const clip = manager.clips[clipName];
       if (clip) this.actions[clipName] = this.mixer.clipAction(clip);
     }
@@ -323,34 +350,69 @@ class Zombie {
     this.playClip(this.cfg.hit, 0.06);
   }
 
-  takeDamage(amount, isLegHit, legAmount) {
+  // A zone fall: the zombie is knocked down by accumulated damage to one
+  // body zone, then stands back up. Mirrors startStumble: a timed state
+  // the update() loop resolves. The boss (skeleton) kip-ups instead of
+  // just standing up (see the 'zonefall'/'kipup' branches in update()).
+  startZoneFall(kind) {
+    if (this.state === 'dying' || this.state === 'zonefall' || this.state === 'kipup' || this.state === 'stumble' || this.crawling) return false;
+    const clipName = kind === 'groin' ? 'groin_hit' : 'shoulder_hit_fall';
+    const act = this.actions[clipName];
+    if (!act) return false; // clip missing: fall back to a plain hit reaction
+    this.state = 'zonefall';
+    this._zoneFallKind = kind;
+    this._kipUpDone = false;
+    const clip = act.getClip();
+    this.stateT = clip ? clip.duration : 1.5;
+    this.playOnce(clipName, 0.06);
+    return true;
+  }
+
+  takeDamage(amount, isLegHit, legAmount, hitY) {
     if (!this.alive || this.state === 'dying') return;
     this.hp -= amount;
     this._drawHpBar();
     this.flash = 0.3;
     this.setFlash(true);
+    const isWalker = this.typeKey === 'walker';
     if (this.hp <= 0) {
       this.state = 'dying';
-      // CRAWL DEATH: a zombie killed while crawling dies LYING DOWN — it
-      // stays in its crawl pose and fades, it does NOT stand up to play
-      // the standing death animation.
+      // Hide the health bar + ground ring on death (both branches below).
+      this._hpSprite.visible = false;
+      if (this._groundRing) this._groundRing.visible = false;
       const wasCrawling = this.crawling;
       // DEATH DURATION = the full clip length, so the whole death animation
       // plays (the zombie falls and lies on the ground) + a short linger,
-      // THEN it fades and is removed. The old fixed 1.4s cut the clip off
-      // mid-fall (skeleton death is 4.33s, Revenant 3s).
-      const deathClip = this.actions[this.cfg.death];
-      const clipDur = (deathClip && deathClip.getClip()) ? deathClip.getClip().duration : 1.4;
-      // Cap at 4s: Mixamo death clips include a long "lying still" tail
-      // (Revenant is 8.33s) — the fall itself is ~2-3s, so 4s shows the
-      // full fall + a beat on the ground without corpses lingering.
-      this.deathT = wasCrawling ? 1.6 : Math.min(clipDur + 0.8, 4.0);
-      this._hpSprite.visible = false; // hide the health bar on death
-      if (this._groundRing) this._groundRing.visible = false; // hide the ground ring too
-      if (wasCrawling) {
-        this.playClip(this.cfg.crawl, 0.08); // stay low, fade in place
+      // THEN it fades and is removed. Cap at 4s: Mixamo death clips include
+      // a long "lying still" tail — the fall itself is ~2-3s.
+      const deathDur = (clipName) => {
+        const act = this.actions[clipName];
+        const dur = (act && act.getClip()) ? act.getClip().duration : 1.4;
+        return Math.min(dur + 0.8, 4.0);
+      };
+      if (wasCrawling && !isWalker && this.actions['dying_lying']) {
+        // CRAWL DEATH (v3.18): killed while crawling, the zombie dies LYING
+        // DOWN with the flat 'dying_lying' clip — it does NOT stand up to
+        // play a standing death, and it does NOT just vanish in crawl pose.
+        this.deathT = deathDur('dying_lying');
+        this.playOnce('dying_lying', 0.08);
+      } else if (!wasCrawling && !isWalker && this.actions['zombie_dying'] && Math.random() < 0.5) {
+        // STANDING DEATH VARIETY (v3.18): 50/50 between the zombie's
+        // configured death and the extra 'zombie_dying' (falling forward),
+        // so standing zombies have BOTH death animations.
+        this.deathT = deathDur('zombie_dying');
+        this.playOnce('zombie_dying', 0.08);
       } else {
-        this.playOnce(this.cfg.death, 0.08);
+        // CRAWL DEATH (walker + fallback): stays in its crawl pose and
+        // fades in place. Standing death: the configured death clip.
+        const deathClip = this.actions[this.cfg.death];
+        const clipDur = (deathClip && deathClip.getClip()) ? deathClip.getClip().duration : 1.4;
+        this.deathT = wasCrawling ? 1.6 : Math.min(clipDur + 0.8, 4.0);
+        if (wasCrawling) {
+          this.playClip(this.cfg.crawl, 0.08); // stay low, fade in place
+        } else {
+          this.playOnce(this.cfg.death, 0.08);
+        }
       }
       if (window.soundEngine && window.soundEngine.playZombieDeath) window.soundEngine.playZombieDeath();
       this.manager.onZombieKilled(this);
@@ -376,9 +438,49 @@ class Zombie {
         return;
       }
     }
+    // HIT-LOCATION REACTIONS (v3.18): the zombie plays a DIFFERENT hit
+    // animation depending on WHERE the bullet landed — head, upper body,
+    // stomach/groin — instead of one hit animation for every hit. The
+    // walker keeps his own hit_revenant (shared clips collapse him).
+    // relY is the hit height above the zombie's feet (default 1.2 = chest
+    // when the caller has no ray hit point, e.g. melee).
     this.state = 'hit';
     this.stateT = 0.4;
-    this.playClip(this.cfg.hit, 0.06);
+    if (isWalker) {
+      this.playClip(this.cfg.hit, 0.06);
+      return;
+    }
+    const relY = (hitY !== undefined && hitY !== null) ? hitY - this.scene.position.y : 1.2;
+    if (relY > 1.5) {
+      // HEAD: the 'head_hit' reaction (hands to the head, staggers back).
+      if (this.actions['head_hit']) this.playClip('head_hit', 0.06);
+      else this.playClip(this.cfg.hit, 0.06);
+      return;
+    }
+    if (relY >= 1.0) {
+      // UPPER BODY / SHOULDER: accumulate toward the 70% fall. At the
+      // threshold the zombie plays the shoulder fall and stands back up.
+      this.upperDmg += amount;
+      if (this.upperDmg >= this.nextUpperFallAt && !this.crawling) {
+        this.nextUpperFallAt += 0.7 * this.maxHp;
+        if (this.startZoneFall('shoulder')) return;
+      }
+    } else if (relY >= 0.5) {
+      // STOMACH / GROIN: accumulate toward the 70% fall (doubled over).
+      this.groinDmg += amount;
+      if (this.groinDmg >= this.nextGroinFallAt && !this.crawling) {
+        this.nextGroinFallAt += 0.7 * this.maxHp;
+        if (this.startZoneFall('groin')) return;
+      }
+    }
+    // PLAIN BODY HIT: alternate 'hit_reaction' and the type's own hit
+    // clip so two hits in a row never look identical.
+    this._hitAlt++;
+    if (this._hitAlt % 2 === 1 && this.actions['hit_reaction']) {
+      this.playClip('hit_reaction', 0.06);
+    } else {
+      this.playClip(this.cfg.hit, 0.06);
+    }
   }
 
   // Redraw the health bar sprite. Green > 50%, yellow 25-50%, red < 25%.
@@ -479,6 +581,37 @@ class Zombie {
       return true;
     }
 
+    // ZONE FALL (v3.18): knocked down by 70% damage to one body zone.
+    // The fall clip plays out, then the zombie stands back up — EXCEPT
+    // the boss (skeleton), who kip-ups to his feet instead.
+    if (this.state === 'zonefall') {
+      this.stateT -= dt;
+      if (this.stateT <= 0) {
+        if (this.typeKey === 'skeleton' && !this._kipUpDone && this.actions['kip_up']) {
+          this._kipUpDone = true;
+          this.state = 'kipup';
+          const kc = this.actions['kip_up'];
+          this.stateT = kc.getClip() ? kc.getClip().duration : 1.0;
+          this.playOnce('kip_up', 0.08);
+        } else {
+          this.state = 'chase';
+          this.playClip(this.chaseClip(), 0.12);
+        }
+      }
+      return true;
+    }
+
+    // KIP-UP (v3.18): boss only — after the fall, springs back to his
+    // feet, then resumes the chase.
+    if (this.state === 'kipup') {
+      this.stateT -= dt;
+      if (this.stateT <= 0) {
+        this.state = 'chase';
+        this.playClip(this.chaseClip(), 0.12);
+      }
+      return true;
+    }
+
     if (this.state === 'attack') {
       this.stateT -= dt;
       // Damage lands mid-windup ONLY if the swing really connects: the
@@ -539,16 +672,18 @@ class Zombie {
     }
 
     // In attack range -> start the attack (only when the cooldown has expired)
-    // CRAWL ATTACK: a crawling zombie attacks LOW (a forward lunge while
-    // staying on the ground) — it does NOT stand up to hit. The Revenant
-    // uses his own attack clip (shared clips collapse his auto-rigged
-    // skeleton); the others use the shared low 'lunge'.
+    // CRAWL ATTACK (v3.18): a crawling zombie attacks LOW while staying on
+    // the ground — it does NOT stand up to hit. Shared skeletons bite at
+    // the player's legs with the ground-level 'zombie_biting' clip (on all
+    // fours, confirmed a ground animation). The Revenant stays on his own
+    // crawl clip (shared clips collapse him; his standing attack would
+    // make him rise up).
     if (dist <= this.cfg.range && this.attackCooldown <= 0) {
       this.state = 'attack';
       this.stateT = this.cfg.attackDur;
       this.damageDealt = false;
       if (this.crawling) {
-        this.playClip(this.typeKey === 'walker' ? this.cfg.attack : 'lunge', 0.08);
+        this.playClip(this.typeKey === 'walker' ? this.cfg.crawl : 'zombie_biting', 0.08);
       } else {
         this.playClip(this.cfg.attack, 0.08);
       }
@@ -601,6 +736,12 @@ class ZombieManager {
       if (pending === 0) {
         this.loaded = true;
         console.log('[Zombies] All 5 zombie characters + ' + clipNames.length + ' clips loaded (FBX runtime).');
+        // BONE FILTER (v3.18, pack-demo lesson): three r128 PropertyBinding
+        // falls back to the mixer ROOT for tracks whose bone doesn't exist
+        // on that zombie — the Prisoner's one-bone stump hand leaves ~20
+        // right-finger tracks unbound, which bound to root and made a 190m
+        // giant. Filter BEFORE pre-warming so no bad track ever plays.
+        this._filterClipBones();
         this._preWarm();
       }
     };
@@ -676,6 +817,55 @@ class ZombieManager {
         doneOne();
       });
     }
+  }
+
+  // BONE FILTER (v3.18): drop every clip track whose bone does not exist
+  // on the zombies that will play it, plus any 'Armature.*' root tracks
+  // (the game positions zombies itself — a root track would move/scale
+  // the whole zombie). Shared clips must survive on ALL FIVE shared
+  // templates (prisoner / zombiegirl / parasite / skeleton / romero), so
+  // a track is kept only if its node is in the intersection of their
+  // bone sets — that removes the finger tracks the Prisoner's stump hand
+  // lacks, and any type-specific bone. The Revenant's 5 clips are
+  // filtered against HIS template only (his auto-rigged skeleton differs).
+  // Track node name = everything before the last '.' (e.g. 'mixamorigHips'
+  // from 'mixamorigHips.quaternion'). The Hips-Y position filtering above
+  // already ran at load time; this pass only removes whole tracks.
+  _filterClipBones() {
+    const namesByType = {};
+    for (const key of Object.keys(this.templates)) {
+      const set = new Set();
+      const tpl = this.templates[key];
+      if (tpl) tpl.traverse((o) => { if (o.name) set.add(o.name); });
+      namesByType[key] = set;
+    }
+    const sharedKeys = ['prisoner', 'zombiegirl', 'parasite', 'skeleton', 'romero'];
+    const loadedShared = sharedKeys.filter((k) => namesByType[k] && namesByType[k].size > 0);
+    if (loadedShared.length < 3) {
+      console.warn('[Zombies] Bone filter skipped — too few shared templates loaded (' + loadedShared.length + ').');
+      return;
+    }
+    // Intersection of all loaded shared templates' bone sets.
+    let sharedNames = new Set(namesByType[loadedShared[0]]);
+    for (let i = 1; i < loadedShared.length; i++) {
+      const s = namesByType[loadedShared[i]];
+      sharedNames = new Set([...sharedNames].filter((n) => s.has(n)));
+    }
+    const revenantNames = namesByType['walker'] || new Set();
+    const revenantClips = new Set(['walk_revenant', 'attack_revenant', 'hit_revenant', 'death_revenant', 'crawl_revenant']);
+    let dropped = 0, kept = 0;
+    for (const [name, clip] of Object.entries(this.clips)) {
+      const allowed = revenantClips.has(name) ? revenantNames : sharedNames;
+      clip.tracks = clip.tracks.filter((t) => {
+        const dot = t.name.lastIndexOf('.');
+        const node = dot >= 0 ? t.name.slice(0, dot) : t.name;
+        if (node.startsWith('Armature')) { dropped++; return false; }
+        if (!allowed.has(node)) { dropped++; return false; }
+        kept++;
+        return true;
+      });
+    }
+    console.log('[Zombies] Bone filter: kept ' + kept + ' tracks, dropped ' + dropped + ' unbound/root tracks.');
   }
 
   // SHADER PRE-WARM (fixes the 2-3s freeze when a wave starts): the first
@@ -785,11 +975,15 @@ class ZombieManager {
     // Feedback: red vignette + Leon hit reaction so the player can SEE
     // and FEEL that a real hit landed (not just proximity drain).
     if (window.showDamageVignette) window.showDamageVignette();
-    if (p && p.playHitReaction) p.playHitReaction();
+    if (p && p.playHitReaction && !p.isDying) p.playHitReaction();
     if (window.soundEngine && window.soundEngine.playHurt) window.soundEngine.playHurt();
-    if (p.hp <= 0 && !this.gameOver) {
-      this.gameOver = true;
-      if (this.game && this.game.onPlayerDeath) this.game.onPlayerDeath();
+    // PLAYER DEATH (v3.18): do NOT show the game-over popup the same frame
+    // HP hits 0. Flag the player as dying — his update plays the full
+    // 'dyingKneel' animation first, and only then calls onPlayerDeath()
+    // (which pauses the game and shows the overlay). The popup must wait
+    // for the animation.
+    if (p.hp <= 0 && !p.isDying) {
+      p.isDying = true;
     }
   }
 

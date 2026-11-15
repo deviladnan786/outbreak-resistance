@@ -990,5 +990,9 @@ body.touch #touch-buttons {
   box-shadow: 0 0 28px rgba(57, 255, 106, 0.45), 0 4px 0 #1d9e45;
   animation: load-pulse 1.4s ease-in-out infinite;
 }
+/* BUG FIX: there was NO generic .hidden rule in this stylesheet, so the
+   START button rendered visibly from page load even though it carries
+   class="hidden" — it must stay invisible until progress truly hits 100%. */
+.load-start.hidden { display: none; }
 @keyframes load-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 .load-hint { margin-top: 18px; font-size: 11px; letter-spacing: 2px; color: rgba(232, 240, 242, 0.4); }
