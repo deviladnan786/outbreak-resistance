@@ -168,14 +168,10 @@ class PlayerOperator {
     this.mesh = new THREE.Group();
     this.scene.add(this.mesh);
     this.hitFlinchT = 0; // seconds left on the damage flinch lean
-
-    // Ground Shadow Decal
-    const shadowGeo = new THREE.CircleGeometry(0.55, 16);
-    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.52 });
-    this.shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
-    this.shadowMesh.rotation.x = -Math.PI / 2;
-    this.shadowMesh.position.y = 0.02;
-    this.scene.add(this.shadowMesh);
+    // NOTE: the old fake "blob shadow" (a black CircleGeometry decal under
+    // Leon) is REMOVED — it read as a flat black disc, not a real shadow,
+    // and it cost a draw call. The real shadow now comes from the moonlight
+    // directional shadow map (the model's own cast shadow).
   }
 
   // =========================================================================
@@ -2158,7 +2154,7 @@ class PlayerOperator {
       this.mesh.rotation.x = -0.18 * Math.max(0, this.hitFlinchT / 0.25);
       if (this.hitFlinchT <= 0) this.mesh.rotation.x = 0;
     }
-    this.shadowMesh.position.set(this.position.x, this.currentGroundY + 0.02, this.position.z);
+    // (Blob shadow decal removed — the moonlight shadow map is the shadow now.)
 
     // Footstep Foley
     if (isMoving && this.isGrounded && !fullBodyStuntActive && !this.isShootdodging) {

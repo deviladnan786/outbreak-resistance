@@ -267,7 +267,19 @@ class Zombie {
   playClip(name, fade = 0.15) {
     const next = this.actions[name];
     if (!next) return;
-    if (this.activeAction === next) return;
+    if (this.activeAction === next) {
+      // SELF-HEAL: an action can end up faded to weight 0 (a fadeOut that
+      // completed) while still being the "active" one — then the zombie
+      // renders in bind pose and floats toward the player with no walk
+      // animation. If the weight dropped or it stopped, restart it at
+      // full weight immediately (no fade ramp — it must be visible now).
+      if (next.weight < 0.99 || !next.isRunning()) {
+        next.reset().setLoop(THREE.LoopRepeat);
+        next.weight = 1;
+        next.play();
+      }
+      return;
+    }
     if (this.activeAction) this.activeAction.fadeOut(fade);
     next.reset().setLoop(THREE.LoopRepeat).fadeIn(fade).play();
     this.activeAction = next;
@@ -311,7 +323,16 @@ class Zombie {
     this.setFlash(true);
     if (this.hp <= 0) {
       this.state = 'dying';
-      this.deathT = 1.4;
+      // DEATH DURATION = the full clip length, so the whole death animation
+      // plays (the zombie falls and lies on the ground) + a short linger,
+      // THEN it fades and is removed. The old fixed 1.4s cut the clip off
+      // mid-fall (skeleton death is 4.33s, Revenant 3s).
+      const deathClip = this.actions[this.cfg.death];
+      const clipDur = (deathClip && deathClip.getClip()) ? deathClip.getClip().duration : 1.4;
+      // Cap at 4s: Mixamo death clips include a long "lying still" tail
+      // (Revenant is 8.33s) — the fall itself is ~2-3s, so 4s shows the
+      // full fall + a beat on the ground without corpses lingering.
+      this.deathT = Math.min(clipDur + 0.8, 4.0); // full fall + 0.8s on the ground
       this._hpSprite.visible = false; // hide the health bar on death
       if (this._groundRing) this._groundRing.visible = false; // hide the ground ring too
       this.playOnce(this.cfg.death, 0.08);
@@ -398,10 +419,13 @@ class Zombie {
     if (this.state === 'dying') {
       this.deathT -= dt;
       // Fade the corpse out over the last 0.5s so it doesn't pop away.
+      // SKIP the hitbox: it is an invisible raycast cylinder (opacity 0),
+      // and setting its opacity to the fade value would make it render as
+      // a solid WHITISH rectangle/cylinder after death.
       if (this.deathT < 0.5) {
         const op = Math.max(0, this.deathT / 0.5);
         this.scene.traverse((o) => {
-          if (o.isMesh && o.material) {
+          if (o.isMesh && o.material && o !== this.hitbox) {
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             for (const m of mats) { m.transparent = true; m.opacity = op; }
           }
@@ -464,6 +488,10 @@ class Zombie {
     }
 
     // chase: seek the player, slide along obstacles, separate from other zombies
+    // Keep the chase clip asserted every frame — if the walk/crawl action
+    // ever dies (weight 0 after a fade), playClip self-heals it instead of
+    // the zombie floating in bind pose with no leg animation.
+    this.playClip(this.chaseClip(), 0.1);
     const px = player.position.x, pz = player.position.z;
     const dx = px - this.scene.position.x;
     const dz = pz - this.scene.position.z;

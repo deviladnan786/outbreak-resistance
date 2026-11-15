@@ -921,3 +921,39 @@ body.touch #touch-buttons {
   /* ammo panel is taller/lower in portrait, so push the secondary row below it */
   .tbtn-dodge, .tbtn-roll, .tbtn-kick, .tbtn-view, .tbtn-holster, .tbtn-fullscreen { top: 126px; }
 }
+
+/* ================= LOADING SCREEN ================= */
+#loading-screen {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, #0a1410 0%, #04060a 70%);
+  transition: opacity 0.6s ease; color: #e8f0f2;
+}
+#loading-screen.fading { opacity: 0; pointer-events: none; }
+#loading-screen.gone { display: none; }
+.load-inner { text-align: center; padding: 20px; max-width: 420px; width: 90%; }
+.load-title {
+  font-family: var(--font-display, 'Orbitron', sans-serif);
+  font-size: 44px; font-weight: 900; letter-spacing: 8px; color: #39ff6a;
+  text-shadow: 0 0 24px rgba(57, 255, 106, 0.5);
+}
+.load-sub { font-size: 13px; letter-spacing: 4px; color: rgba(232, 240, 242, 0.7); margin-top: 6px; }
+.load-bar {
+  height: 6px; margin: 28px auto 10px; background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px; overflow: hidden;
+}
+.load-fill {
+  height: 100%; width: 8%; border-radius: 3px;
+  background: linear-gradient(90deg, #39ff6a, #00c853);
+  transition: width 0.4s ease;
+}
+.load-status { font-size: 12px; letter-spacing: 2px; color: rgba(232, 240, 242, 0.6); }
+.load-start {
+  margin-top: 26px; padding: 14px 34px; font-size: 17px; font-weight: 800;
+  letter-spacing: 2px; color: #04120a; background: #39ff6a; border: none;
+  border-radius: 8px; cursor: pointer; font-family: inherit;
+  box-shadow: 0 0 28px rgba(57, 255, 106, 0.45);
+  animation: load-pulse 1.4s ease-in-out infinite;
+}
+@keyframes load-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.load-hint { margin-top: 18px; font-size: 11px; letter-spacing: 2px; color: rgba(232, 240, 242, 0.4); }

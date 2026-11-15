@@ -63,11 +63,71 @@ class OutbreakGame {
     this.initTouchControls();
     this.initSettingsModal();
     this.initCrazyGamesSDK();
+    this.initLoadingScreen();
 
     window.addEventListener('resize', () => this.onWindowResize());
     this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
 
     this.animate();
+  }
+
+  // LOADING SCREEN: the game is paused behind it until the player taps
+  // START. That tap is the user gesture browsers require for fullscreen +
+  // orientation lock on mobile, so mobile goes fullscreen + landscape on
+  // the very first tap. The progress bar tracks zombie template/clip loads.
+  initLoadingScreen() {
+    // Pause gameplay until START (the world still renders behind the screen).
+    this.isPaused = true;
+    this._loadingDone = false;
+    const screen = document.getElementById('loading-screen');
+    const fill = document.getElementById('load-fill');
+    const status = document.getElementById('load-status');
+    const startBtn = document.getElementById('load-start');
+    if (!screen) { this.isPaused = false; return; }
+    const tick = () => {
+      if (this._loadingDone) return;
+      const zm = this.zombieManager;
+      // Progress: zombie templates + clips loaded so far (0..1), plus Leon.
+      let p = 0.08;
+      if (zm) {
+        const total = Object.keys(ZOMBIE_TYPES).length + Object.keys(ZOMBIE_CLIPS).length;
+        const got = Object.keys(zm.templates).length + Object.keys(zm.clips).length;
+        p = 0.08 + 0.82 * (total ? got / total : 0);
+      }
+      if (this.player && this.player.isSurvivorLoaded) p = Math.max(p, 0.92);
+      if (fill) fill.style.width = Math.round(p * 100) + '%';
+      const ready = zm && zm.loaded && (!this.player || this.player.isSurvivorLoaded);
+      if (ready) {
+        this._loadingDone = true;
+        if (fill) fill.style.width = '100%';
+        if (status) status.textContent = 'READY — SECTOR 04 AWAITS';
+        if (startBtn) startBtn.classList.remove('hidden');
+        return;
+      }
+      if (status) status.textContent = 'LOADING ASSETS… ' + Math.round(p * 100) + '%';
+      setTimeout(tick, 200);
+    };
+    tick();
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        // Mobile: fullscreen + landscape on this tap (a real user gesture).
+        if (this.isTouch) {
+          this.toggleFullscreen();
+        }
+        screen.classList.add('fading');
+        setTimeout(() => screen.classList.add('gone'), 650);
+        this.isPaused = false;
+        this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
+      });
+    }
+    // Failsafe: if loading somehow never completes, let the player in anyway.
+    setTimeout(() => {
+      if (!this._loadingDone && startBtn) {
+        this._loadingDone = true;
+        if (status) status.textContent = 'READY — SECTOR 04 AWAITS';
+        startBtn.classList.remove('hidden');
+      }
+    }, 30000);
   }
 
   initThree() {
@@ -460,9 +520,11 @@ class OutbreakGame {
 
     // Auto-fullscreen on the FIRST tap anywhere (a user gesture, so the
     // browser allows it). After that the fullscreen button toggles it.
-    // (Skips taps on the fullscreen button itself — its own handler toggles.)
+    // (Skips taps on the fullscreen button itself — its own handler toggles —
+    // and on the loading screen / START button, which handles fullscreen
+    // itself; otherwise START would toggle fullscreen twice.)
     const goFullscreenOnce = (e) => {
-      if (e.target && e.target.closest && e.target.closest('[data-action="fullscreen"]')) return;
+      if (e.target && e.target.closest && (e.target.closest('[data-action="fullscreen"]') || e.target.closest('#loading-screen'))) return;
       self.toggleFullscreen();
       document.removeEventListener('touchstart', goFullscreenOnce);
       document.removeEventListener('pointerdown', goFullscreenOnce);
