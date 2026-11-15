@@ -83,13 +83,15 @@ class OutbreakGame {
     // PERFORMANCE: the game was running at 10-11 FPS on a laptop and on
     // mobile. The big costs are (1) pixel ratio — a phone with DPR 2 renders
     // 4x the pixels; (2) antialiasing — very expensive on mobile GPUs;
-    // (3) soft shadows at 2048. So on touch devices (phone/tablet) we render
-    // at pixel ratio 1, no AA, and cheap PCF shadows. On desktop we keep AA
-    // but cap the pixel ratio at 1.5 (a 4K screen at DPR 2 was rendering 4x
-    // pixels for no visible gain). This is the single biggest FPS win.
+    // (3) shadows. The REAL killer was the 4 street-lamp point lights each
+    // casting shadows (a point-light shadow renders the scene 6x — 24 extra
+    // renders/frame); those are now shadow-free in environment.js. So the
+    // pixel ratio can be a bit higher without killing FPS: mobile 1.5
+    // (sharper than 1, still 2.25x pixels not 4x), desktop capped at 1.5.
+    // v3.13 used 1.0 on mobile and it looked blurry — 1.5 is the balance.
     this.renderer = new THREE.WebGLRenderer({ antialias: !this.isTouch, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(this.isTouch ? 1 : Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(this.isTouch ? 1.5 : Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = this.isTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;

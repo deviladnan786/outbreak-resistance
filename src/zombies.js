@@ -549,6 +549,7 @@ class ZombieManager {
       if (pending === 0) {
         this.loaded = true;
         console.log('[Zombies] All 5 zombie characters + ' + clipNames.length + ' clips loaded (FBX runtime).');
+        this._preWarm();
       }
     };
     // --- characters ---
@@ -623,6 +624,44 @@ class ZombieManager {
         doneOne();
       });
     }
+  }
+
+  // SHADER PRE-WARM (fixes the 2-3s freeze when a wave starts): the first
+  // time a new zombie type renders, three.js compiles its shaders and uploads
+  // its textures to the GPU — that compile stalls the game for seconds. Wave 1
+  // froze at ~5s (first zombies), wave 2 froze (parasite + Romero first
+  // appear), wave 3 froze (skeleton first appears). So once everything is
+  // loaded, we render one of EACH type (hidden far below the ground) and
+  // force a compile + render, so every shader + texture is ready BEFORE
+  // gameplay. No more freeze when a new type spawns.
+  _preWarm() {
+    const game = this.game;
+    if (!game || !game.renderer || !game.camera) return;
+    const warmed = [];
+    try {
+      for (const key of Object.keys(ZOMBIE_TYPES)) {
+        const tpl = this.templates[key];
+        if (!tpl) continue;
+        const clone = THREE.SkeletonUtils.clone(tpl);
+        clone.position.set(0, -60, 0); // far below ground, invisible
+        // Play its chase clip so the skinned-mesh shader path compiles.
+        const clipName = ZOMBIE_TYPES[key].chase;
+        const clip = this.clips[clipName];
+        if (clip) {
+          const mixer = new THREE.AnimationMixer(clone);
+          mixer.clipAction(clip).play();
+          mixer.update(0.1);
+        }
+        this.scene.add(clone);
+        warmed.push(clone);
+      }
+      game.renderer.compile(game.scene, game.camera);
+      game.renderer.render(game.scene, game.camera);
+    } catch (e) {
+      console.warn('[Zombies] Pre-warm failed (non-fatal):', e);
+    }
+    for (const c of warmed) this.scene.remove(c);
+    console.log('[Zombies] Pre-warmed all zombie shaders/textures.');
   }
 
   registerHitMesh(mesh) {

@@ -89,10 +89,13 @@ class CityEnvironment {
     bulb.position.set(x > 0 ? -1.0 : 1.0, 5.25, 0);
     group.add(bulb);
 
-    // Real-time Point Light
+    // Real-time Point Light — NO shadow. A shadow-casting point light renders
+    // the whole scene 6 times (cube map) every frame; 4 lamps = 24 extra
+    // scene renders, which is why the game ran at 10-13 FPS. The moonlight
+    // directional still casts the main shadows; the lamps just light.
     const pointLight = new THREE.PointLight(color, 2.2, 22);
     pointLight.position.copy(bulb.position);
-    pointLight.castShadow = true;
+    pointLight.castShadow = false;
     pointLight.shadow.bias = -0.002;
     group.add(pointLight);
 
