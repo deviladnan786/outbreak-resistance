@@ -74,16 +74,29 @@ class OutbreakGame {
   // LOADING SCREEN: the game is paused behind it until the player taps
   // START. That tap is the user gesture browsers require for fullscreen +
   // orientation lock on mobile, so mobile goes fullscreen + landscape on
-  // the very first tap. The progress bar tracks zombie template/clip loads.
+  // the very first tap. The ring + bar track zombie template/clip loads.
+  // START appears only AFTER the ring/bar hit 100% (with a beat so the
+  // player actually sees 100% first).
   initLoadingScreen() {
     // Pause gameplay until START (the world still renders behind the screen).
     this.isPaused = true;
     this._loadingDone = false;
     const screen = document.getElementById('loading-screen');
     const fill = document.getElementById('load-fill');
-    const status = document.getElementById('load-status');
+    const ring = document.getElementById('load-ring-fg');
+    const pct = document.getElementById('load-pct');
+    const tip = document.getElementById('load-tip');
     const startBtn = document.getElementById('load-start');
     if (!screen) { this.isPaused = false; return; }
+    const RING_LEN = 326.7; // 2 * PI * 52
+    const tips = ['SECTOR 04 — NIGHT PATROL', 'HORDE INBOUND — STAY SHARP', 'CHECK YOUR AMMO', 'THE DEAD DON\u2019T REST'];
+    let tipIdx = 0;
+    const setProgress = (p) => {
+      const pc = Math.round(p * 100);
+      if (fill) fill.style.width = pc + '%';
+      if (ring) ring.style.strokeDashoffset = (RING_LEN * (1 - p)).toFixed(1);
+      if (pct) pct.textContent = pc + '%';
+    };
     const tick = () => {
       if (this._loadingDone) return;
       const zm = this.zombieManager;
@@ -95,19 +108,27 @@ class OutbreakGame {
         p = 0.08 + 0.82 * (total ? got / total : 0);
       }
       if (this.player && this.player.isSurvivorLoaded) p = Math.max(p, 0.92);
-      if (fill) fill.style.width = Math.round(p * 100) + '%';
+      setProgress(p);
       const ready = zm && zm.loaded && (!this.player || this.player.isSurvivorLoaded);
       if (ready) {
+        // Fill to 100% first, THEN reveal START after a beat.
+        setProgress(1);
         this._loadingDone = true;
-        if (fill) fill.style.width = '100%';
-        if (status) status.textContent = 'READY — SECTOR 04 AWAITS';
-        if (startBtn) startBtn.classList.remove('hidden');
+        setTimeout(() => {
+          if (tip) tip.textContent = 'ALL SYSTEMS READY';
+          if (startBtn) startBtn.classList.remove('hidden');
+        }, 650);
         return;
       }
-      if (status) status.textContent = 'LOADING ASSETS… ' + Math.round(p * 100) + '%';
       setTimeout(tick, 200);
     };
     tick();
+    // Rotate the flavour tip while loading.
+    const tipTimer = setInterval(() => {
+      if (this._loadingDone || !tip) { clearInterval(tipTimer); return; }
+      tipIdx = (tipIdx + 1) % tips.length;
+      tip.textContent = tips[tipIdx];
+    }, 2600);
     if (startBtn) {
       startBtn.addEventListener('click', () => {
         // Mobile: fullscreen + landscape on this tap (a real user gesture).
@@ -124,7 +145,8 @@ class OutbreakGame {
     setTimeout(() => {
       if (!this._loadingDone && startBtn) {
         this._loadingDone = true;
-        if (status) status.textContent = 'READY — SECTOR 04 AWAITS';
+        setProgress(1);
+        if (tip) tip.textContent = 'ALL SYSTEMS READY';
         startBtn.classList.remove('hidden');
       }
     }, 30000);
@@ -523,7 +545,16 @@ class OutbreakGame {
     // (Skips taps on the fullscreen button itself — its own handler toggles —
     // and on the loading screen / START button, which handles fullscreen
     // itself; otherwise START would toggle fullscreen twice.)
+    // BUG FIX: the listener was NOT removed when it skipped the START tap,
+    // so the player's first gameplay tap (2-3s after START) toggled
+    // fullscreen OFF again. Now: if fullscreen is already on, just remove
+    // the listener and do nothing.
     const goFullscreenOnce = (e) => {
+      if (document.fullscreenElement) {
+        document.removeEventListener('touchstart', goFullscreenOnce);
+        document.removeEventListener('pointerdown', goFullscreenOnce);
+        return;
+      }
       if (e.target && e.target.closest && (e.target.closest('[data-action="fullscreen"]') || e.target.closest('#loading-screen'))) return;
       self.toggleFullscreen();
       document.removeEventListener('touchstart', goFullscreenOnce);
