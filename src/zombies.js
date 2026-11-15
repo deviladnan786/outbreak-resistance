@@ -36,6 +36,10 @@ const ZOMBIE_TYPES = {
   // (bone rest orientations don't match). He uses his own Mixamo-retargeted
   // clips (walk/attack/hit/death/crawl_revenant) — verified walking, attacking,
   // dying and crawling in the isolated test before wiring in.
+  // v3.21: the 7 missed animations (hit reactions, zone falls, second
+  // death, crawl bite, crawl death) were retargeted in Blender onto his
+  // rig (retarget_revenant.py) — he never plays a shared clip. After a
+  // zone fall he resumes his chase clip (NO kip_up — kip_up is boss-only).
   // BALANCE v3.19 — HP tiers so types feel different (bullet damage
   // UNCHANGED: body 34 / head 68 / leg 9 body + 34 leg). Parasite has
   // MORE HP than zombiegirl (80 vs 60) — his call. Note: parasite is
@@ -132,7 +136,19 @@ const ZOMBIE_CLIPS = {
   attack_revenant: 'attack_revenant.fbx',
   hit_revenant: 'hit_revenant.fbx',
   death_revenant: 'death_revenant.fbx',
-  crawl_revenant: 'crawl_revenant.fbx'
+  crawl_revenant: 'crawl_revenant.fbx',
+  // v3.21 — the 7 missed animations retargeted IN BLENDER from the shared
+  // clips onto the Revenant rig (retarget_revenant.py). Walker ONLY —
+  // never give a shared clip to the walker. NO kip_up for the walker
+  // (kip_up is boss-only, skeleton only); after a fall he resumes his
+  // chase clip like the other non-boss zombies.
+  hit_reaction_revenant: 'hit_reaction_revenant.fbx',
+  head_hit_revenant: 'head_hit_revenant.fbx',
+  shoulder_hit_fall_revenant: 'shoulder_hit_fall_revenant.fbx',
+  groin_hit_revenant: 'groin_hit_revenant.fbx',
+  zombie_dying_revenant: 'zombie_dying_revenant.fbx',
+  zombie_biting_revenant: 'zombie_biting_revenant.fbx',
+  dying_lying_revenant: 'dying_lying_revenant.fbx'
 };
 
 // Mixed waves — never a single type. Shamblers from wave 1, the fast
@@ -280,10 +296,12 @@ class Zombie {
     // 'lunge' is loaded too — it is the low crawl-attack clip (a crawling
     // zombie lunges forward while staying on the ground).
     // v3.18: shared-skeleton zombies also build actions for the Mixamo
-    // hit/death/bite clips. The walker (Revenant) is EXCLUDED — shared
-    // clips collapse his auto-rigged skeleton, so he only ever plays his
-    // own retargeted clips.
-    const sharedExtra = this.typeKey === 'walker' ? [] :
+    // hit/death/bite clips. The walker (Revenant) gets his OWN retargeted
+    // versions (v3.21) — shared clips collapse his auto-rigged skeleton,
+    // so he only ever plays his own retargeted clips. NO kip_up for the
+    // walker (boss-only); after a fall he resumes his chase clip.
+    const sharedExtra = this.typeKey === 'walker' ?
+      ['hit_reaction_revenant', 'head_hit_revenant', 'shoulder_hit_fall_revenant', 'groin_hit_revenant', 'zombie_dying_revenant', 'zombie_biting_revenant', 'dying_lying_revenant'] :
       ['hit_reaction', 'head_hit', 'shoulder_hit_fall', 'groin_hit', 'zombie_dying', 'zombie_biting', 'dying_lying', 'kip_up'];
     for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge', ...sharedExtra]) {
       const clip = manager.clips[clipName];
@@ -363,7 +381,13 @@ class Zombie {
   // just standing up (see the 'zonefall'/'kipup' branches in update()).
   startZoneFall(kind) {
     if (this.state === 'dying' || this.state === 'zonefall' || this.state === 'kipup' || this.state === 'stumble' || this.crawling) return false;
-    const clipName = kind === 'groin' ? 'groin_hit' : 'shoulder_hit_fall';
+    // v3.21: the walker uses his own retargeted fall clips — never a
+    // shared clip (it collapses him). After the fall he resumes his
+    // chase clip (see update() 'zonefall' branch) — NO kip_up, which is
+    // boss-only.
+    const clipName = this.typeKey === 'walker'
+      ? (kind === 'groin' ? 'groin_hit_revenant' : 'shoulder_hit_fall_revenant')
+      : (kind === 'groin' ? 'groin_hit' : 'shoulder_hit_fall');
     const act = this.actions[clipName];
     if (!act) return false; // clip missing: fall back to a plain hit reaction
     this.state = 'zonefall';
@@ -397,29 +421,34 @@ class Zombie {
         const dur = (act && act.getClip()) ? act.getClip().duration : 1.4;
         return Math.min(dur + 0.8, 4.0);
       };
-      if (wasCrawling && !isWalker && this.actions['dying_lying']) {
-        // CRAWL DEATH (v3.18): killed while crawling, the zombie dies LYING
-        // DOWN with the flat 'dying_lying' clip — it does NOT stand up to
-        // play a standing death, and it does NOT just vanish in crawl pose.
-        this.deathT = deathDur('dying_lying');
-        this.playOnce('dying_lying', 0.08);
-      } else if (!wasCrawling && !isWalker && this.actions['zombie_dying'] && Math.random() < 0.5) {
-        // STANDING DEATH VARIETY (v3.18): 50/50 between the zombie's
-        // configured death and the extra 'zombie_dying' (falling forward),
-        // so standing zombies have BOTH death animations.
-        this.deathT = deathDur('zombie_dying');
-        this.playOnce('zombie_dying', 0.08);
+      if (wasCrawling) {
+        // CRAWL DEATH: killed while crawling, the zombie dies LYING DOWN
+        // with the flat 'dying_lying' clip — it does NOT stand up to play
+        // a standing death, and it does NOT just vanish in crawl pose.
+        // v3.21: the walker uses his own retargeted 'dying_lying_revenant'
+        // (shared clips collapse him).
+        const cdClip = isWalker ? 'dying_lying_revenant' : 'dying_lying';
+        if (this.actions[cdClip]) {
+          this.deathT = deathDur(cdClip);
+          this.playOnce(cdClip, 0.08);
+        } else {
+          // Fallback (clip missing): stay in crawl pose, fade in place.
+          this.deathT = 1.6;
+          this.playClip(this.cfg.crawl, 0.08);
+        }
+      } else if (this.actions[isWalker ? 'zombie_dying_revenant' : 'zombie_dying'] && Math.random() < 0.5) {
+        // STANDING DEATH VARIETY (v3.18, walker added v3.21): 50/50
+        // between the zombie's configured death and the extra 'zombie_dying'
+        // (falling forward), so standing zombies have BOTH death animations.
+        const sdClip = isWalker ? 'zombie_dying_revenant' : 'zombie_dying';
+        this.deathT = deathDur(sdClip);
+        this.playOnce(sdClip, 0.08);
       } else {
-        // CRAWL DEATH (walker + fallback): stays in its crawl pose and
-        // fades in place. Standing death: the configured death clip.
+        // Standing death: the configured death clip.
         const deathClip = this.actions[this.cfg.death];
         const clipDur = (deathClip && deathClip.getClip()) ? deathClip.getClip().duration : 1.4;
-        this.deathT = wasCrawling ? 1.6 : Math.min(clipDur + 0.8, 4.0);
-        if (wasCrawling) {
-          this.playClip(this.cfg.crawl, 0.08); // stay low, fade in place
-        } else {
-          this.playOnce(this.cfg.death, 0.08);
-        }
+        this.deathT = Math.min(clipDur + 0.8, 4.0);
+        this.playOnce(this.cfg.death, 0.08);
       }
       if (window.soundEngine && window.soundEngine.playZombieDeath) window.soundEngine.playZombieDeath();
       this.manager.onZombieKilled(this);
@@ -445,22 +474,20 @@ class Zombie {
         return;
       }
     }
-    // HIT-LOCATION REACTIONS (v3.18): the zombie plays a DIFFERENT hit
-    // animation depending on WHERE the bullet landed — head, upper body,
-    // stomach/groin — instead of one hit animation for every hit. The
-    // walker keeps his own hit_revenant (shared clips collapse him).
-    // relY is the hit height above the zombie's feet (default 1.2 = chest
-    // when the caller has no ray hit point, e.g. melee).
+    // HIT-LOCATION REACTIONS (v3.18, walker added v3.21): the zombie plays
+    // a DIFFERENT hit animation depending on WHERE the bullet landed —
+    // head, upper body, stomach/groin — instead of one hit animation for
+    // every hit. The walker uses his own retargeted clips (shared clips
+    // collapse him). relY is the hit height above the zombie's feet
+    // (default 1.2 = chest when the caller has no ray hit point, e.g. melee).
     this.state = 'hit';
     this.stateT = 0.4;
-    if (isWalker) {
-      this.playClip(this.cfg.hit, 0.06);
-      return;
-    }
     const relY = (hitY !== undefined && hitY !== null) ? hitY - this.scene.position.y : 1.2;
+    const headClip = isWalker ? 'head_hit_revenant' : 'head_hit';
+    const reactClip = isWalker ? 'hit_reaction_revenant' : 'hit_reaction';
     if (relY > 1.5) {
       // HEAD: the 'head_hit' reaction (hands to the head, staggers back).
-      if (this.actions['head_hit']) this.playClip('head_hit', 0.06);
+      if (this.actions[headClip]) this.playClip(headClip, 0.06);
       else this.playClip(this.cfg.hit, 0.06);
       return;
     }
@@ -483,8 +510,8 @@ class Zombie {
     // PLAIN BODY HIT: alternate 'hit_reaction' and the type's own hit
     // clip so two hits in a row never look identical.
     this._hitAlt++;
-    if (this._hitAlt % 2 === 1 && this.actions['hit_reaction']) {
-      this.playClip('hit_reaction', 0.06);
+    if (this._hitAlt % 2 === 1 && this.actions[reactClip]) {
+      this.playClip(reactClip, 0.06);
     } else {
       this.playClip(this.cfg.hit, 0.06);
     }
@@ -679,18 +706,20 @@ class Zombie {
     }
 
     // In attack range -> start the attack (only when the cooldown has expired)
-    // CRAWL ATTACK (v3.18): a crawling zombie attacks LOW while staying on
-    // the ground — it does NOT stand up to hit. Shared skeletons bite at
-    // the player's legs with the ground-level 'zombie_biting' clip (on all
-    // fours, confirmed a ground animation). The Revenant stays on his own
-    // crawl clip (shared clips collapse him; his standing attack would
-    // make him rise up).
+    // CRAWL ATTACK (v3.18, walker bite added v3.21): a crawling zombie
+    // attacks LOW while staying on the ground — it does NOT stand up to
+    // hit. Shared skeletons bite at the player's legs with the
+    // ground-level 'zombie_biting' clip (on all fours, confirmed a ground
+    // animation). The Revenant now uses his own retargeted
+    // 'zombie_biting_revenant' (his own crawl clip is no longer the
+    // attack); falls back to the crawl clip if the retarget is missing.
     if (dist <= this.cfg.range && this.attackCooldown <= 0) {
       this.state = 'attack';
       this.stateT = this.cfg.attackDur;
       this.damageDealt = false;
       if (this.crawling) {
-        this.playClip(this.typeKey === 'walker' ? this.cfg.crawl : 'zombie_biting', 0.08);
+        const biteClip = this.typeKey === 'walker' ? 'zombie_biting_revenant' : 'zombie_biting';
+        this.playClip(this.actions[biteClip] ? biteClip : this.cfg.crawl, 0.08);
       } else {
         this.playClip(this.cfg.attack, 0.08);
       }
