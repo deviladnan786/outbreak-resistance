@@ -36,35 +36,42 @@ const ZOMBIE_TYPES = {
   // (bone rest orientations don't match). He uses his own Mixamo-retargeted
   // clips (walk/attack/hit/death/crawl_revenant) — verified walking, attacking,
   // dying and crawling in the isolated test before wiring in.
+  // BALANCE v3.19 — HP tiers so types feel different (bullet damage
+  // UNCHANGED: body 34 / head 68 / leg 9 body + 34 leg). Parasite stays
+  // the lowest HP because it is by far the fastest (3.4 m/s) — speed is
+  // its defense; fast AND tanky would be unfair. Zombiegirl is now
+  // standard tier (quick + 70 HP). The 70% zone-fall rule now actually
+  // triggers on walker/zombiegirl/prisoner/romero/boss because they
+  // survive 2+ shots to one zone.
   walker: {
     file: 'assets/zombies/fbx/revenant.fbx',
-    speed: 1.3, hp: 50, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
+    speed: 1.3, hp: 70, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
     chase: 'walk_revenant', attack: 'attack_revenant', hit: 'hit_revenant', death: 'death_revenant', crawl: 'crawl_revenant',
     attackWindup: 0.45, attackDur: 0.9
   },
   prisoner: { // the ONE-HAND zombie (right hand is a stump, no fingers)
     file: 'assets/zombies/fbx/prisoner.fbx',
-    speed: 1.25, hp: 55, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
+    speed: 1.25, hp: 90, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
     chase: 'walk_zombie', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.45, attackDur: 0.9
   },
   zombiegirl: {
     file: 'assets/zombies/fbx/zombiegirl.fbx',
-    speed: 1.6, hp: 45, dmg: 8, range: 1.4, radius: 0.4, xp: 10, legHp: 100,
+    speed: 1.6, hp: 70, dmg: 8, range: 1.4, radius: 0.4, xp: 10, legHp: 100,
     chase: 'walk_creeping', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.4, attackDur: 0.85
   },
   // --- fast (sprinter role) ---
   parasite: {
     file: 'assets/zombies/fbx/parasite.fbx',
-    speed: 3.4, hp: 40, dmg: 8, range: 1.4, radius: 0.45, xp: 10, legHp: 90,
+    speed: 3.4, hp: 60, dmg: 8, range: 1.4, radius: 0.45, xp: 10, legHp: 90,
     chase: 'run', attack: 'lunge', hit: 'hit_feral', death: 'death_feral', crawl: 'crawl',
     attackWindup: 0.3, attackDur: 0.7
   },
   // --- boss (brute role, replaced) ---
   skeleton: {
     file: 'assets/zombies/fbx/skeleton.fbx',
-    speed: 0.95, hp: 300, dmg: 25, range: 1.9, radius: 0.7, xp: 30, legHp: 250,
+    speed: 0.95, hp: 400, dmg: 25, range: 1.9, radius: 0.7, xp: 30, legHp: 250,
     chase: 'stomp', attack: 'slam', hit: 'hit_feral', death: 'death_brute', crawl: 'crawl',
     attackWindup: 0.6, attackDur: 1.2
   },
@@ -73,7 +80,7 @@ const ZOMBIE_TYPES = {
   // mixamorig:* in Blender so the shared clips bind (else he vanishes).
   romero: {
     file: 'assets/zombies/fbx/romero.fbx',
-    speed: 1.45, hp: 60, dmg: 12, range: 1.5, radius: 0.45, xp: 15, legHp: 130,
+    speed: 1.45, hp: 120, dmg: 12, range: 1.5, radius: 0.45, xp: 15, legHp: 130,
     chase: 'walk', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.45, attackDur: 0.9
   }
