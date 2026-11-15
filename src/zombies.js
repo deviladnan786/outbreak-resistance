@@ -51,7 +51,9 @@ const ZOMBIE_TYPES = {
   zombiegirl: {
     file: 'assets/zombies/fbx/zombiegirl.fbx',
     speed: 1.6, hp: 45, dmg: 8, range: 1.4, radius: 0.4, xp: 10, legHp: 100,
-    chase: 'walk', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
+    // Her own walk: 'charge' — a faster, more aggressive stride, so she
+    // does not move identically to the prisoner/Romero shambler walk.
+    chase: 'charge', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
     attackWindup: 0.4, attackDur: 0.85
   },
   // --- fast (sprinter role) ---
@@ -99,6 +101,7 @@ const ZOMBIE_CLIPS = {
   crawl: 'crawl.fbx',
   run: 'run.fbx',
   lunge: 'lunge.fbx',
+  charge: 'charge.fbx',
   hit_feral: 'hit_feral.fbx',
   death_feral: 'death_feral.fbx',
   stomp: 'stomp.fbx',
@@ -246,12 +249,17 @@ class Zombie {
     // across all zombies of every type (stripped of .position tracks).
     this.mixer = new THREE.AnimationMixer(this.scene);
     this.actions = {};
-    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl]) {
+    // 'lunge' is loaded too — it is the low crawl-attack clip (a crawling
+    // zombie lunges forward while staying on the ground).
+    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge']) {
       const clip = manager.clips[clipName];
       if (clip) this.actions[clipName] = this.mixer.clipAction(clip);
     }
     this.activeAction = null;
     this.playClip(this.cfg.chase, 0.1);
+    // WALK VARIETY: each zombie animates at a slightly different rhythm
+    // (0.92–1.12x) so same-clip zombies never march in lockstep.
+    this.mixer.timeScale = 0.92 + Math.random() * 0.2;
     this._tmpVel = new THREE.Vector3();
     this._tmpDir = new THREE.Vector3();
   }
@@ -323,6 +331,10 @@ class Zombie {
     this.setFlash(true);
     if (this.hp <= 0) {
       this.state = 'dying';
+      // CRAWL DEATH: a zombie killed while crawling dies LYING DOWN — it
+      // stays in its crawl pose and fades, it does NOT stand up to play
+      // the standing death animation.
+      const wasCrawling = this.crawling;
       // DEATH DURATION = the full clip length, so the whole death animation
       // plays (the zombie falls and lies on the ground) + a short linger,
       // THEN it fades and is removed. The old fixed 1.4s cut the clip off
@@ -332,10 +344,14 @@ class Zombie {
       // Cap at 4s: Mixamo death clips include a long "lying still" tail
       // (Revenant is 8.33s) — the fall itself is ~2-3s, so 4s shows the
       // full fall + a beat on the ground without corpses lingering.
-      this.deathT = Math.min(clipDur + 0.8, 4.0); // full fall + 0.8s on the ground
+      this.deathT = wasCrawling ? 1.6 : Math.min(clipDur + 0.8, 4.0);
       this._hpSprite.visible = false; // hide the health bar on death
       if (this._groundRing) this._groundRing.visible = false; // hide the ground ring too
-      this.playOnce(this.cfg.death, 0.08);
+      if (wasCrawling) {
+        this.playClip(this.cfg.crawl, 0.08); // stay low, fade in place
+      } else {
+        this.playOnce(this.cfg.death, 0.08);
+      }
       if (window.soundEngine && window.soundEngine.playZombieDeath) window.soundEngine.playZombieDeath();
       this.manager.onZombieKilled(this);
       return;
@@ -523,11 +539,19 @@ class Zombie {
     }
 
     // In attack range -> start the attack (only when the cooldown has expired)
+    // CRAWL ATTACK: a crawling zombie attacks LOW (a forward lunge while
+    // staying on the ground) — it does NOT stand up to hit. The Revenant
+    // uses his own attack clip (shared clips collapse his auto-rigged
+    // skeleton); the others use the shared low 'lunge'.
     if (dist <= this.cfg.range && this.attackCooldown <= 0) {
       this.state = 'attack';
       this.stateT = this.cfg.attackDur;
       this.damageDealt = false;
-      this.playClip(this.cfg.attack, 0.08);
+      if (this.crawling) {
+        this.playClip(this.typeKey === 'walker' ? this.cfg.attack : 'lunge', 0.08);
+      } else {
+        this.playClip(this.cfg.attack, 0.08);
+      }
       if (window.soundEngine && window.soundEngine.playZombieAttack) window.soundEngine.playZombieAttack();
     }
     return true;

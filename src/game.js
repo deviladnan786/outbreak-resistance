@@ -75,8 +75,8 @@ class OutbreakGame {
   // START. That tap is the user gesture browsers require for fullscreen +
   // orientation lock on mobile, so mobile goes fullscreen + landscape on
   // the very first tap. The ring + bar track zombie template/clip loads.
-  // START appears only AFTER the ring/bar hit 100% (with a beat so the
-  // player actually sees 100% first).
+  // The displayed % eases smoothly toward the real target (no jumps), and
+  // START appears only AFTER the display actually reads 100%.
   initLoadingScreen() {
     // Pause gameplay until START (the world still renders behind the screen).
     this.isPaused = true;
@@ -91,36 +91,47 @@ class OutbreakGame {
     const RING_LEN = 326.7; // 2 * PI * 52
     const tips = ['SECTOR 04 — NIGHT PATROL', 'HORDE INBOUND — STAY SHARP', 'CHECK YOUR AMMO', 'THE DEAD DON\u2019T REST'];
     let tipIdx = 0;
+    let shown = 0; // displayed progress 0..1, eased toward target
     const setProgress = (p) => {
       const pc = Math.round(p * 100);
       if (fill) fill.style.width = pc + '%';
       if (ring) ring.style.strokeDashoffset = (RING_LEN * (1 - p)).toFixed(1);
       if (pct) pct.textContent = pc + '%';
     };
-    const tick = () => {
-      if (this._loadingDone) return;
+    const targetProgress = () => {
       const zm = this.zombieManager;
-      // Progress: zombie templates + clips loaded so far (0..1), plus Leon.
-      let p = 0.08;
+      let p = 0.05;
       if (zm) {
         const total = Object.keys(ZOMBIE_TYPES).length + Object.keys(ZOMBIE_CLIPS).length;
         const got = Object.keys(zm.templates).length + Object.keys(zm.clips).length;
-        p = 0.08 + 0.82 * (total ? got / total : 0);
+        p = 0.05 + 0.85 * (total ? got / total : 0);
       }
-      if (this.player && this.player.isSurvivorLoaded) p = Math.max(p, 0.92);
-      setProgress(p);
-      const ready = zm && zm.loaded && (!this.player || this.player.isSurvivorLoaded);
-      if (ready) {
-        // Fill to 100% first, THEN reveal START after a beat.
+      if (this.player && this.player.isSurvivorLoaded) p += 0.10;
+      return Math.min(p, 1);
+    };
+    const allLoaded = () => {
+      const zm = this.zombieManager;
+      return !!(zm && zm.loaded && (!this.player || this.player.isSurvivorLoaded));
+    };
+    const tick = () => {
+      if (this._loadingDone) return;
+      // Ease the displayed % toward the real target — smooth, no jumps.
+      // (Slow easing so the ring/bar visibly sweep up instead of snapping.)
+      const target = targetProgress();
+      shown += (target - shown) * 0.10;
+      if (target - shown < 0.002) shown = target;
+      setProgress(shown);
+      // START only when the DISPLAY actually reads 100%.
+      if (allLoaded() && shown >= 0.999) {
         setProgress(1);
         this._loadingDone = true;
         setTimeout(() => {
           if (tip) tip.textContent = 'ALL SYSTEMS READY';
           if (startBtn) startBtn.classList.remove('hidden');
-        }, 650);
+        }, 500);
         return;
       }
-      setTimeout(tick, 200);
+      setTimeout(tick, 50);
     };
     tick();
     // Rotate the flavour tip while loading.

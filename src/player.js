@@ -58,6 +58,8 @@ class PlayerOperator {
     // State Flags
     this.isSprinting = false;
     this.isAiming = false;
+    this.aimToggled = false; // scope toggle state (tap to enter/exit scope)
+    this._prevRightHeld = false; // rising-edge detector for the scope toggle
     this.isCrouching = false;
     this.isInvulnerable = false;
     this.moveState = 'COMBAT READY';
@@ -1834,11 +1836,13 @@ class PlayerOperator {
         if (tangent.dot(fwd) < 0) tangent.negate();
         this.wallRunDir.copy(tangent).normalize();
 
-        // Snap player onto the wall surface line (at height 1.35m and 0.32m from wall face - both feet firmly touch wall!)
+        // Snap player onto the wall surface line (at height 1.35m and 0.5m
+        // from wall face — far enough that the sideways legs plant ON the
+        // wall instead of clipping THROUGH it; was 0.32m, feet went inside).
         const snapX = chosenWall.closestX !== undefined ? chosenWall.closestX : this.position.x;
         const snapZ = chosenWall.closestZ !== undefined ? chosenWall.closestZ : this.position.z;
-        this.position.x = snapX + normal.x * 0.32;
-        this.position.z = snapZ + normal.z * 0.32;
+        this.position.x = snapX + normal.x * 0.5;
+        this.position.z = snapZ + normal.z * 0.5;
         this.position.y = Math.max(this.position.y, 1.35);
         this.velocityY = 0; // Defy gravity on wall surface
         this.isGrounded = false;
@@ -2007,9 +2011,10 @@ class PlayerOperator {
         this.dropkickType = 'FORWARD';
         this.mesh.rotation.y = Math.atan2(this.dropkickDir.x, this.dropkickDir.z);
 
-        this.velocityY = 5.6; // High airborne leap!
+        this.velocityY = 3.2; // Controlled leap — high enough to clear a zombie's legs, not above its head.
         this.isGrounded = false;
         this.setWeaponLocation('BACK');
+        this.performMeleeAttack(); // dropkick damages zombies in front
         if (window.soundEngine && window.soundEngine.playFlyingDropkick) window.soundEngine.playFlyingDropkick();
       } else {
         // [Martial Arts]: 2-HIT MARTIAL KICK COMBO (Stationary K: Hit 1 = Snap Kick, Hit 2 = Action Hero High Neck Roundhouse)
@@ -2018,6 +2023,7 @@ class PlayerOperator {
         this.kickDuration = this.kickCombo === 0 ? 0.48 : 0.75;
         this.kickTimer = this.kickDuration;
         this.setWeaponLocation('BACK');
+        this.performMeleeAttack(); // stationary kick damages zombies in front
         if (window.soundEngine && window.soundEngine.playKick) window.soundEngine.playKick();
       }
     }
@@ -2186,7 +2192,15 @@ class PlayerOperator {
   }
 
   handleAiming(delta, input) {
-    this.isAiming = Boolean(input && input.mouseRightHeld && !this.isSprinting);
+    // SCOPE TOGGLE: tap right-click / AIM once to enter scope, tap again to
+    // exit (not hold-to-aim). The toggle flips on the rising edge of the
+    // right-button press, so holding it does not flicker it on/off.
+    const rightHeld = Boolean(input && input.mouseRightHeld);
+    if (rightHeld && !this._prevRightHeld) {
+      this.aimToggled = !this.aimToggled;
+    }
+    this._prevRightHeld = rightHeld;
+    this.isAiming = Boolean(this.aimToggled && !this.isSprinting);
     const isFiring = Boolean(input && (input.mouseLeftHeld || this.isAiming));
 
     if (this.cameraMode === 'TOP_DOWN') {
@@ -2333,26 +2347,35 @@ class PlayerOperator {
     this.recoilRot *= Math.exp(-20.0 * delta);
 
     if (this.weaponLocation === 'BACK') {
-      // UNARMED MODE: Left-Click or E triggers GTA-style punches with both hands!
-      const canPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
-      const punchTrigger = (input.mouseLeftHeld || input.keys['KeyE']) && canPunch;
+      // If the player clicks to FIRE while unarmed (after a punch) and is
+      // not mid-punch, draw the rifle automatically and let the fire code
+      // below run — punching must never lock the player out of shooting.
+      if (input.mouseLeftHeld && !this.isPunching && !this.isKicking && !this.isDropkicking) {
+        this.setWeaponLocation('HAND');
+        this.boxingCombatTimer = 0;
+        // fall through to the armed/fire section (do NOT return)
+      } else {
+        // UNARMED MODE: Left-Click or E triggers GTA-style punches with both hands!
+        const canPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
+        const punchTrigger = (input.mouseLeftHeld || input.keys['KeyE']) && canPunch;
 
-      if (punchTrigger && !this.isPunching) {
-        this.isPunching = true;
-        this.punchCombo = (this.punchCombo + 1) % 3; // 0 = Left Jab, 1 = Right Cross, 2 = Left Hook
-        const comboDurations = [0.38, 0.44, 0.46];
-        this.punchDuration = comboDurations[this.punchCombo];
-        this.punchTimer = this.punchDuration;
-        this.idleTimer = 0.0;
-        this.boxingCombatTimer = 5.0; // Maintain boxing stance for 5 seconds
+        if (punchTrigger && !this.isPunching) {
+          this.isPunching = true;
+          this.punchCombo = (this.punchCombo + 1) % 3; // 0 = Left Jab, 1 = Right Cross, 2 = Left Hook
+          const comboDurations = [0.38, 0.44, 0.46];
+          this.punchDuration = comboDurations[this.punchCombo];
+          this.punchTimer = this.punchDuration;
+          this.idleTimer = 0.0;
+          this.boxingCombatTimer = 2.0; // Maintain boxing stance briefly (was 5s — felt locked)
 
-        if (window.soundEngine && window.soundEngine.playPunch) {
-          window.soundEngine.playPunch();
+          if (window.soundEngine && window.soundEngine.playPunch) {
+            window.soundEngine.playPunch();
+          }
+
+          this.performMeleeAttack();
         }
-
-        this.performMeleeAttack();
+        return;
       }
-      return;
     } else {
       // ARMED MODE: Pressing E directly transitions to melee punch!
       const canQuickPunch = !this.isRolling && !this.isKicking && !this.isDropkicking && !this.isWallRunning && !this.isWallBackflipping && !this.isShootdodging;
@@ -2366,7 +2389,7 @@ class PlayerOperator {
         this.punchDuration = comboDurations[this.punchCombo];
         this.punchTimer = this.punchDuration;
         this.idleTimer = 0.0;
-        this.boxingCombatTimer = 5.0; // Maintain boxing stance for 5 seconds
+        this.boxingCombatTimer = 2.0; // Maintain boxing stance briefly (was 5s — felt locked)
 
         if (window.soundEngine && window.soundEngine.playPunch) {
           window.soundEngine.playPunch();
@@ -2404,15 +2427,19 @@ class PlayerOperator {
 
     for (const zombie of window.game.zombies) {
       if (!zombie.alive) continue;
-      const toZombie = new THREE.Vector3().subVectors(zombie.position, this.position);
+      // BUG FIX: the Zombie class stores its position in scene.position
+      // (there is no zombie.position / zombie.mesh) — the old code threw
+      // "Cannot read properties of undefined" and melee NEVER damaged
+      // anything. That is why kicks/fists did nothing to zombies.
+      const zPos = zombie.scene ? zombie.scene.position : null;
+      if (!zPos) continue;
+      const toZombie = new THREE.Vector3().subVectors(zPos, this.position);
       const dist = toZombie.length();
       if (dist <= 1.9) {
         toZombie.normalize();
         if (forward.dot(toZombie) > 0.35) {
           zombie.takeDamage(45);
-          if (zombie.mesh) {
-            zombie.position.addScaledVector(forward, 0.45);
-          }
+          zPos.addScaledVector(forward, 0.45);
         }
       }
     }
