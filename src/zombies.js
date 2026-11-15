@@ -62,6 +62,15 @@ const ZOMBIE_TYPES = {
     speed: 0.95, hp: 300, dmg: 25, range: 1.9, radius: 0.7, xp: 30, legHp: 250,
     chase: 'stomp', attack: 'slam', hit: 'hit_feral', death: 'death_brute', crawl: 'crawl',
     attackWindup: 0.6, attackDur: 1.2
+  },
+  // --- Romero (Mixamo stock zombie, bare-chested, bloody) — joins wave 2 ---
+  // NOTE: Mixamo ships his bones as mixamorig5:* — the "5" was stripped to
+  // mixamorig:* in Blender so the shared clips bind (else he vanishes).
+  romero: {
+    file: 'assets/zombies/fbx/romero.fbx',
+    speed: 1.45, hp: 60, dmg: 12, range: 1.5, radius: 0.45, xp: 15, legHp: 130,
+    chase: 'walk', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
+    attackWindup: 0.45, attackDur: 0.9
   }
 };
 
@@ -100,7 +109,8 @@ function waveComp(n) {
     prisoner: 1 + Math.floor((n - 1) / 2),
     zombiegirl: 1 + Math.floor((n - 1) / 2),
     parasite: n >= 2 ? 1 + Math.floor(n / 2) : 0,
-    skeleton: n >= 3 ? Math.floor((n - 1) / 2) : 0
+    skeleton: n >= 3 ? Math.floor((n - 1) / 2) : 0,
+    romero: n >= 2 ? 1 + Math.floor((n - 1) / 2) : 0
   };
 }
 
