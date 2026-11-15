@@ -84,7 +84,7 @@
         <span class="pulse-dot"></span>
         <span class="sector-title">SECTOR 04 // QUARANTINE ZONE</span>
         <span class="sector-short">SECTOR 04</span>
-        <span id="build-version" style="opacity:.65;font-size:11px;letter-spacing:1px;margin-left:8px;">v3.19</span>
+        <span id="build-version" style="opacity:.65;font-size:11px;letter-spacing:1px;margin-left:8px;">v3.20</span>
       </div>
       <div class="mission-timer-box">
         <span class="timer-label">EXTRACTION COUNTDOWN</span>
@@ -212,7 +212,7 @@
         <p style="opacity: 0.7;">The quarantine zone claims another operator.</p>
       </div>
       <div class="modal-footer">
-        <button class="tactical-btn primary" onclick="location.reload()">PLAY AGAIN</button>
+        <button class="tactical-btn primary" onclick="window.game && window.game.restartMatch()">PLAY AGAIN</button>
       </div>
     </div>
   </div>
@@ -266,7 +266,7 @@
   <script src="src/SkeletonUtils.js?v=1"></script>
   <script src="src/zombies.js?v=3.19"></script>
   <script src="src/environment.js?v=3.17"></script>
-  <script src="src/player.js?v=3.18"></script>
-  <script src="src/game.js?v=3.17"></script>
+  <script src="src/player.js?v=3.20"></script>
+  <script src="src/game.js?v=3.20"></script>
 </body>
 </html>

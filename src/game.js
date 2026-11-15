@@ -113,12 +113,23 @@ class OutbreakGame {
       const zm = this.zombieManager;
       return !!(zm && zm.loaded && (!this.player || this.player.isSurvivorLoaded));
     };
+    // v3.20 SMOOTH LOADER: drive the displayed % on requestAnimationFrame
+    // (the bar only repaints on rAF anyway) with faster easing (0.25) plus
+    // a small minimum creep, so the ring/bar sweep continuously instead of
+    // stepping every 50ms and stalling while a big FBX parses. START is
+    // still gated on allLoaded() + shown >= 0.999, so the creep can never
+    // reveal it early.
     const tick = () => {
       if (this._loadingDone) return;
       // Ease the displayed % toward the real target — smooth, no jumps.
-      // (Slow easing so the ring/bar visibly sweep up instead of snapping.)
       const target = targetProgress();
-      shown += (target - shown) * 0.10;
+      const gap = target - shown;
+      // Normal: 3%/frame cap — on a 10 FPS device one frame can never jump
+      // the bar (that was the laggy look). Rush (failsafe): 10%/frame, so a
+      // slow device still sweeps to 100% in ~0.7s once assets are loaded.
+      const cap = this._loadingRush ? 0.10 : 0.03;
+      shown += Math.min(Math.max(gap * 0.25, 0.002), cap); // min creep: never stalls
+      if (shown > target) shown = target;
       if (target - shown < 0.002) shown = target;
       setProgress(shown);
       // START only when the DISPLAY actually reads 100%.
@@ -131,9 +142,9 @@ class OutbreakGame {
         }, 500);
         return;
       }
-      setTimeout(tick, 50);
+      requestAnimationFrame(tick);
     };
-    tick();
+    requestAnimationFrame(tick);
     // Rotate the flavour tip while loading.
     const tipTimer = setInterval(() => {
       if (this._loadingDone || !tip) { clearInterval(tipTimer); return; }
@@ -152,15 +163,28 @@ class OutbreakGame {
         this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
       });
     }
-    // Failsafe: if loading somehow never completes, let the player in anyway.
-    setTimeout(() => {
-      if (!this._loadingDone && startBtn) {
+    // Failsafe: never SNAP the bar to 100% (the old 30s failsafe did exactly
+    // that — on a slow device the bar jumped 31% -> 100% in one frame, the
+    // "laggy" look). Instead: if assets ARE loaded but the display is just
+    // lagging, rush the easing (10%/frame cap, still smooth). If assets are
+    // NOT loaded yet, wait and re-check; only as a last resort (90s) let
+    // the player in with the bar at its true progress.
+    let failsafeCount = 0;
+    const failsafe = () => {
+      if (this._loadingDone) return;
+      failsafeCount++;
+      if (allLoaded()) {
+        this._loadingRush = true;
+      } else if (failsafeCount >= 3) {
         this._loadingDone = true;
-        setProgress(1);
+        setProgress(targetProgress());
         if (tip) tip.textContent = 'ALL SYSTEMS READY';
-        startBtn.classList.remove('hidden');
+        if (startBtn) startBtn.classList.remove('hidden');
+      } else {
+        setTimeout(failsafe, 30000);
       }
-    }, 30000);
+    };
+    setTimeout(failsafe, 30000);
   }
 
   initThree() {
@@ -222,6 +246,76 @@ class OutbreakGame {
       over.classList.remove('hidden');
     }
     if (document.exitPointerLock) document.exitPointerLock();
+  }
+
+  // v3.20 TRY AGAIN — restart the match IN PLACE (no page reload, no
+  // asset re-load, no loading screen). Resets the player, clears every
+  // zombie/vial/marker from the scene, resets wave/kills/level/timer,
+  // hides the overlay and starts wave 1 immediately.
+  restartMatch() {
+    const p = this.player;
+    const zm = this.zombieManager;
+    if (!p || !zm) return;
+    // --- player ---
+    p.hp = p.maxHp;
+    p.isDead = false;
+    p.isDying = false;
+    p._deathTriggered = false;
+    p._deathOverlayShown = false;
+    p._deathTimer = 0;
+    p.ammoClip = p.maxClip;
+    p.ammoReserve = 180;
+    p.stamina = 100;
+    p.position.set(0, 0, 0);
+    p.velocity.set(0, 0, 0);
+    p.velocityY = 0;
+    p.isGrounded = true;
+    // clear every combat/stunt flag so nothing from the death carries over
+    p.isPunching = false; p.punchTimer = 0;
+    p.boxingCombatTimer = 0;
+    p.isHolstering = false; p.holsterTimer = 0;
+    p.isKicking = false; p.kickTimer = 0;
+    p.isDropkicking = false; p.dropkickTimer = 0;
+    p.isRolling = false;
+    p.isShootdodging = false;
+    p.isWallRunning = false; p.isWallBackflipping = false;
+    p.isReloading = false;
+    p.hitFlinchT = 0;
+    p._hitReactT = 0;
+    p.userWeaponPreference = 'HAND';
+    p.setWeaponLocation('HAND');
+    if (p.mesh) { p.mesh.rotation.set(0, 0, 0); p.mesh.position.copy(p.position); }
+    if (p.survivorModel) p.survivorModel.position.y = p.survivorBaseY !== undefined ? p.survivorBaseY : 0.95;
+    if (p.actions && p.actions['idleAiming']) p.fadeToAction('idleAiming', 0.2);
+    if (p.updateHUD) p.updateHUD();
+    // --- zombies: remove every live zombie + vial + marker from the scene ---
+    for (const z of zm.zombies) {
+      if (z.scene) zm.scene.remove(z.scene);
+    }
+    zm.zombies.length = 0; // shared reference with game.zombies
+    zm.hitMeshes.length = 0;
+    zm.toSpawn.length = 0;
+    for (const v of zm.xpVials) zm.scene.remove(v.mesh);
+    zm.xpVials.length = 0;
+    for (const m of zm.markers) zm.scene.remove(m.mesh);
+    zm.markers.length = 0;
+    zm.kills = 0;
+    zm.totalXP = 0;
+    zm.level = 1;
+    zm.wave = 0;
+    zm.gameOver = false;
+    zm.breakActive = false;
+    zm.updateWaveHUD();
+    // --- game ---
+    this.missionSeconds = 600;
+    this.extracted = false;
+    this.isPaused = false;
+    const over = document.getElementById('gameover-overlay');
+    if (over) over.classList.add('hidden');
+    const title = document.getElementById('gameover-title');
+    if (title) title.textContent = 'YOU DIED';
+    zm.startWave(1);
+    this.notify('MISSION RESTART — WAVE 1 INCOMING');
   }
 
   // Timer hit zero and the player is still alive: extraction win

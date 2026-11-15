@@ -1045,8 +1045,34 @@ class PlayerOperator {
             const clip = fbx.animations[0].clone();
             clip.name = key;
 
+            // v3.20 DEATH DROP: dyingKneel's Hips Y falls 94.9 -> 12.4cm,
+            // but the strip below removes ALL .position tracks, so the kneel
+            // played with hips frozen at standing height and Leon floated
+            // mid-air. Keep the Hips Y for this clip only, rebased onto
+            // Leon's OWN bind pose: Y' = bindY + (Y - Y0). Both are in cm
+            // (Leon's skeleton is cm-scale inside the x0.01 character
+            // group), so NO unit scaling — x0.01 would shrink the 82cm
+            // drop to 0.8cm. X/Z frozen at the bind pose so he drops
+            // straight down instead of sliding forward 1.3m.
+            // (Measured: Leon's Hips bind Y = 19.73cm local; clip Y0 = 94.9.)
+            if (key === 'dyingKneel') {
+              const hipsTrack = clip.tracks.find((t) => t.name.endsWith('.position') && t.name.indexOf('Hips') >= 0);
+              if (hipsTrack && this.survivorHips) {
+                const v = hipsTrack.values;
+                const y0 = v[1];
+                const bind = this.survivorHips.position;
+                for (let i = 0; i < v.length; i += 3) {
+                  v[i] = bind.x;
+                  v[i + 1] = bind.y + (v[i + 1] - y0);
+                  v[i + 2] = bind.z;
+                }
+                hipsTrack._keepDeathDrop = true;
+              }
+            }
+
             // Strip root translation track to ensure game physics manages player position & collisions cleanly
-            clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position'));
+            // (except the dyingKneel Hips drop above — it IS the fall).
+            clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position') || t._keepDeathDrop);
 
             // v3.18 BONE FILTER (new hit/death clips only): drop tracks for
             // bones Leon doesn't have + 'Armature.*' root tracks (see
@@ -1202,6 +1228,24 @@ class PlayerOperator {
       return;
     }
 
+    // v3.20 MELEE LOCK — ROOT CAUSE: punch/boxing/holster timers were ONLY
+    // decremented in updateOperatorKinematics, which early-returns when
+    // isSurvivorLoaded — so after the first E press isPunching stayed true
+    // FOREVER (E-toggle + Q + punch + walk-animation all dead, and the
+    // isPunching branch froze Leon on the flyingKick clip). Decrement them
+    // HERE, in the survivor path. The arm overrides run after the mixer
+    // (same pattern as the spine dampening above) so they win the frame.
+    if (this.isPunching) {
+      this.punchTimer -= delta;
+      if (this.punchTimer <= 0) { this.punchTimer = 0; this.isPunching = false; }
+    }
+    if (this.boxingCombatTimer > 0) {
+      this.boxingCombatTimer -= delta;
+      if (this.boxingCombatTimer < 0) this.boxingCombatTimer = 0;
+    }
+    if (this.isHolstering) this.animateSurvivorHolster(delta);
+    if (this.isPunching) this.animateSurvivorPunch();
+
     const isFiring = Boolean(input && input.mouseLeftHeld);
     const isAiming = Boolean(input && input.mouseRightHeld);
 
@@ -1229,9 +1273,12 @@ class PlayerOperator {
         this.fadeToAction('wallFlip', 0.12);
       } else if (this.isDropkicking || this.isKicking) {
         this.fadeToAction('flyingKick', 0.10);
-      } else if (this.isPunching) {
-        this.fadeToAction('flyingKick', 0.10);
       } else if (this.isRolling) {
+        // v3.20: the old `else if (this.isPunching)` branch played the
+        // flyingKick clip every time E was pressed (there is no punch
+        // mocap clip in the assets). A punch is now the procedural arm
+        // override in animateSurvivorPunch() (applied after the mixer),
+        // while the body keeps its locomotion/idle clip below.
         this.fadeToAction('wallFlip', 0.12);
       } else if (this.isShootdodging) {
         // Multi-Directional Max Payne Shootdodge Kinematics using authentic Mocap Jump Clips
@@ -1373,6 +1420,94 @@ class PlayerOperator {
         this.survivorRightHand.getWorldQuaternion(handWorldQuat);
         this.survivorHandSocket.quaternion.copy(handWorldQuat.clone().invert().multiply(targetGunQuat));
       }
+    }
+  }
+
+  // v3.20 SURVIVOR HOLSTER: animateHolster() drives the OPERATOR's hidden
+  // procedural bones, so Q showed the "switch mode" text but Leon's visible
+  // arms never moved and the gun never swapped (its timer never ran in the
+  // survivor path either). This mirrors the same two phases on Leon's
+  // Mixamo bones — right hand reaches over the shoulder, the gun swaps
+  // sockets at the midpoint, then the arm settles into a guard (HOLSTER)
+  // or a two-handed grip (DRAW). Runs after mixer.update() so it wins
+  // the frame; when it ends the clip resumes.
+  animateSurvivorHolster(delta) {
+    this.holsterTimer -= delta;
+    const progress = THREE.MathUtils.clamp(1.0 - (this.holsterTimer / this.holsterDuration), 0, 1);
+    const RSh = this.survivorRightShoulder, REl = this.survivorRightForeArm;
+    const LSh = this.survivorLeftShoulder, LEl = this.survivorLeftForeArm;
+    if (this.holsterAction === 'HOLSTER') {
+      if (progress < 0.5) {
+        const t = progress / 0.5;
+        if (RSh) RSh.rotation.set(-0.50 - 1.35 * t, -0.40 + 0.20 * t, -0.10 + 0.55 * t);
+        if (REl) REl.rotation.set(-1.60 - 0.35 * t, 0.50 - 0.20 * t, 0);
+        if (LSh) LSh.rotation.set(-1.30 + 0.70 * t, 0.75 - 0.50 * t, 0.20 - 0.40 * t);
+        if (LEl) LEl.rotation.set(-0.70 - 0.50 * t, -0.50 + 0.30 * t, 0);
+      } else {
+        if (!this.holsterSwapped) {
+          this.holsterSwapped = true;
+          this.setWeaponLocation('BACK');
+          if (window.soundEngine && window.soundEngine.playWeaponSling) window.soundEngine.playWeaponSling();
+        }
+        const t = (progress - 0.5) / 0.5;
+        if (RSh) RSh.rotation.set(-1.85 + 0.70 * t, -0.20 - 0.02 * t, 0.45 - 0.13 * t);
+        if (REl) REl.rotation.set(-1.95 + 0.13 * t, 0.30 - 0.02 * t, 0);
+        if (LSh) LSh.rotation.set(-0.60 - 0.65 * t, 0.25 - 0.03 * t, -0.20 - 0.12 * t);
+        if (LEl) LEl.rotation.set(-1.20 - 0.42 * t, -0.20 - 0.08 * t, 0);
+      }
+    } else { // DRAW
+      if (progress < 0.5) {
+        const t = progress / 0.5;
+        if (RSh) RSh.rotation.set(-1.15 - 0.70 * t, -0.22 + 0.02 * t, 0.32 + 0.13 * t);
+        if (REl) REl.rotation.set(-1.82 - 0.13 * t, 0.28 + 0.02 * t, 0);
+        if (LSh) LSh.rotation.set(-1.25 + 0.65 * t, 0.22 + 0.03 * t, -0.32 + 0.12 * t);
+        if (LEl) LEl.rotation.set(-1.62 + 0.42 * t, -0.28 + 0.08 * t, 0);
+      } else {
+        if (!this.holsterSwapped) {
+          this.holsterSwapped = true;
+          this.setWeaponLocation('HAND');
+          if (window.soundEngine && window.soundEngine.playWeaponSling) window.soundEngine.playWeaponSling();
+        }
+        const t = (progress - 0.5) / 0.5;
+        if (RSh) RSh.rotation.set(-1.85 + 1.35 * t, -0.20 - 0.20 * t, 0.45 - 0.55 * t);
+        if (REl) REl.rotation.set(-1.95 + 0.35 * t, 0.30 + 0.20 * t, 0);
+        if (LSh) LSh.rotation.set(-0.60 - 0.70 * t, 0.25 + 0.50 * t, -0.20 + 0.40 * t);
+        if (LEl) LEl.rotation.set(-1.20 + 0.50 * t, -0.20 - 0.30 * t, 0);
+      }
+    }
+    if (this.holsterTimer <= 0) {
+      this.isHolstering = false;
+      this.setWeaponLocation(this.userWeaponPreference);
+    }
+  }
+
+  // v3.20 SURVIVOR PUNCH: no punch mocap clip exists in the assets, so the
+  // punch is a procedural arm extension on Leon's Mixamo shoulders/elbows
+  // (same -1.5 forward convention as the operator's animatePunch). The
+  // punching arm starts from a guard and snaps out on a sin curve; the
+  // other arm holds a guard. Runs after mixer.update() so it overrides
+  // the clip's arms for the punch; the legs/body keep the locomotion clip.
+  animateSurvivorPunch() {
+    const progress = THREE.MathUtils.clamp(1.0 - (this.punchTimer / this.punchDuration), 0, 1);
+    const t = Math.sin(progress * Math.PI); // 0 -> 1 -> 0
+    const LSh = this.survivorLeftShoulder, LEl = this.survivorLeftForeArm;
+    const RSh = this.survivorRightShoulder, REl = this.survivorRightForeArm;
+    if (!LSh || !RSh) return;
+    if (this.punchCombo === 0) { // LEFT JAB
+      LSh.rotation.set(-1.20 - 0.30 * t, 0.05, 0);
+      if (LEl) LEl.rotation.set(-1.90 + 1.75 * t, 0, 0);
+      RSh.rotation.set(-1.20, -0.20, 0.25);
+      if (REl) REl.rotation.set(-1.90, 0.20, 0);
+    } else if (this.punchCombo === 1) { // RIGHT CROSS
+      RSh.rotation.set(-1.20 - 0.30 * t, -0.05, 0);
+      if (REl) REl.rotation.set(-1.90 + 1.75 * t, 0, 0);
+      LSh.rotation.set(-1.20, 0.20, -0.25);
+      if (LEl) LEl.rotation.set(-1.90, -0.20, 0);
+    } else { // LEFT HOOK (arm across, elbow locked 90°)
+      LSh.rotation.set(-1.20 - 0.20 * t, 0.15 + 0.50 * t, 0);
+      if (LEl) LEl.rotation.set(-1.57, 0, 0);
+      RSh.rotation.set(-1.20, -0.20, 0.25);
+      if (REl) REl.rotation.set(-1.90, 0.20, 0);
     }
   }
 
