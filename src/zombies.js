@@ -31,10 +31,15 @@
 
 const ZOMBIE_TYPES = {
   // --- shamblers (slow, mixed in every wave) ---
+  // walker = the RAGGED REVENANT (his own Meshy look, Mixamo-rigged).
+  // His skeleton is auto-rigged, so the shared Mixamo clips collapse him
+  // (bone rest orientations don't match). He uses his own Mixamo-retargeted
+  // clips (walk/attack/hit/death/crawl_revenant) — verified walking, attacking,
+  // dying and crawling in the isolated test before wiring in.
   walker: {
-    file: 'assets/zombies/fbx/walker.fbx',
+    file: 'assets/zombies/fbx/revenant.fbx',
     speed: 1.3, hp: 50, dmg: 10, range: 1.5, radius: 0.45, xp: 10, legHp: 120,
-    chase: 'walk', attack: 'attack', hit: 'hit_shambler', death: 'death_shambler', crawl: 'crawl',
+    chase: 'walk_revenant', attack: 'attack_revenant', hit: 'hit_revenant', death: 'death_revenant', crawl: 'crawl_revenant',
     attackWindup: 0.45, attackDur: 0.9
   },
   prisoner: { // the ONE-HAND zombie (right hand is a stump, no fingers)
@@ -98,7 +103,14 @@ const ZOMBIE_CLIPS = {
   death_feral: 'death_feral.fbx',
   stomp: 'stomp.fbx',
   slam: 'slam.fbx',
-  death_brute: 'death_brute.fbx'
+  death_brute: 'death_brute.fbx',
+  // Ragged Revenant's own retargeted clips (auto-rigged skeleton — the
+  // shared clips collapse him). Extracted from the Mixamo FBX downloads.
+  walk_revenant: 'walk_revenant.fbx',
+  attack_revenant: 'attack_revenant.fbx',
+  hit_revenant: 'hit_revenant.fbx',
+  death_revenant: 'death_revenant.fbx',
+  crawl_revenant: 'crawl_revenant.fbx'
 };
 
 // Mixed waves — never a single type. Shamblers from wave 1, the fast
@@ -568,12 +580,6 @@ class ZombieManager {
                 m.shininess = 0;
                 if (m.emissive) m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
                 m.emissiveIntensity = 1;
-                // WALKER TINT: the walker reuses the prisoner FBX (the
-                // Ragged Revenant / Warlord models collapse to nothing
-                // under the shared walk clip — their bone rest orientations
-                // don't match the clip). Tint it a sickly rotten green so
-                // it reads as a distinct rotted shambler, not a prisoner.
-                if (key === 'walker' && m.color) m.color.setHex(0x9db38a);
               }
             }
           }
