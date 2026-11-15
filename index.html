@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="style.css?v=3.17">
+  <link rel="stylesheet" href="style.css?v=3.22">
 </head>
 <body>
   <!-- 3D WebGL Canvas Container -->
@@ -30,7 +30,47 @@
        animations). Everything renders behind it; once loaded it shows
        TAP TO START — that tap is the user gesture that lets mobile go
        fullscreen + lock landscape (browsers block fullscreen without a tap). -->
-  <div id="loading-screen">
+  <!-- v3.22 HOME / MENU SCREEN — loads first (HTML/CSS only, no game
+       assets). START GAME opens the loading screen; SETTINGS opens the
+       pause modal (game stays paused on the menu); HOW TO PLAY shows the
+       controls card. -->
+  <div id="menu-screen">
+    <div class="menu-scan"></div>
+    <div class="menu-inner">
+      <div class="menu-kicker">QUARANTINE PROTOCOL // 04</div>
+      <div class="menu-title">OUTBREAK</div>
+      <div class="menu-sub">R E S I S T A N C E</div>
+      <div class="menu-tagline">SURVIVE 10 MINUTES. HOLD THE SECTOR. EXTRACT.</div>
+      <div class="menu-buttons">
+        <button id="menu-start" class="menu-btn primary">▶&nbsp; START GAME</button>
+        <button id="menu-settings" class="menu-btn">⚙&nbsp; SETTINGS</button>
+        <button id="menu-howto" class="menu-btn">?&nbsp; HOW TO PLAY</button>
+      </div>
+      <div class="menu-foot">v3.22 · BEST ON DESKTOP — CHROME / EDGE</div>
+      <!-- HOW TO PLAY card (hidden until the button is tapped) -->
+      <div id="menu-howto-panel" class="menu-howto hidden">
+        <div class="menu-howto-title">HOW TO PLAY</div>
+        <div class="menu-howto-grid">
+          <div><span class="menu-key">W A S D</span> Move</div>
+          <div><span class="menu-key">MOUSE</span> Aim / Look</div>
+          <div><span class="menu-key">LMB</span> Shoot</div>
+          <div><span class="menu-key">RMB</span> Scope (toggle)</div>
+          <div><span class="menu-key">R</span> Reload</div>
+          <div><span class="menu-key">E</span> Melee / Punch</div>
+          <div><span class="menu-key">Q</span> Holster / Draw</div>
+          <div><span class="menu-key">SHIFT</span> Sprint</div>
+          <div><span class="menu-key">SPACE</span> Jump</div>
+          <div><span class="menu-key">V</span> Camera mode</div>
+          <div><span class="menu-key">ESC</span> Settings / Pause</div>
+          <div><span class="menu-key">F / K</span> Kick</div>
+        </div>
+        <div class="menu-howto-tip">Shoot their legs to slow them down — crippled zombies crawl. Headshots deal double damage. Survive 10 minutes to extract.</div>
+        <button id="menu-howto-close" class="menu-btn primary menu-howto-back">BACK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading-screen" class="hidden">
     <div class="load-scan"></div>
     <div class="load-inner">
       <div class="load-kicker">QUARANTINE PROTOCOL // 04</div>
@@ -84,7 +124,7 @@
         <span class="pulse-dot"></span>
         <span class="sector-title">SECTOR 04 // QUARANTINE ZONE</span>
         <span class="sector-short">SECTOR 04</span>
-        <span id="build-version" style="opacity:.65;font-size:11px;letter-spacing:1px;margin-left:8px;">v3.21</span>
+        <span id="build-version" style="opacity:.65;font-size:11px;letter-spacing:1px;margin-left:8px;">v3.22</span>
       </div>
       <div class="mission-timer-box">
         <span class="timer-label">EXTRACTION COUNTDOWN</span>
@@ -254,6 +294,11 @@
           <label for="sfx-toggle">Tactical Audio (Synthesized)</label>
           <input type="checkbox" id="sfx-toggle" checked class="tactical-toggle">
         </div>
+
+        <div class="setting-row">
+          <label for="menu-music-toggle">Menu Music</label>
+          <input type="checkbox" id="menu-music-toggle" checked class="tactical-toggle">
+        </div>
       </div>
       <div class="modal-footer">
         <button id="resume-game-btn" class="tactical-btn primary">RESUME OPERATION</button>
@@ -262,11 +307,11 @@
   </div>
 
   <!-- Core Game Scripts (Cache-Busted to ensure newest Mixamo Mocap Operator loads) -->
-  <script src="src/audio.js?v=leon_v8"></script>
+  <script src="src/audio.js?v=3.22"></script>
   <script src="src/SkeletonUtils.js?v=1"></script>
-  <script src="src/zombies.js?v=3.21"></script>
+  <script src="src/zombies.js?v=3.22"></script>
   <script src="src/environment.js?v=3.17"></script>
-  <script src="src/player.js?v=3.20"></script>
-  <script src="src/game.js?v=3.20"></script>
+  <script src="src/player.js?v=3.22"></script>
+  <script src="src/game.js?v=3.22"></script>
 </body>
 </html>

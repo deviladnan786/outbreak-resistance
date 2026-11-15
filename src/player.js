@@ -174,6 +174,18 @@ class PlayerOperator {
     this.buildFirstPersonWeaponRig();
     this.initLaserSight();
     this.buildProfessionalOperator();
+    // v3.22: Leon's GLB + animations load on demand (beginLoading), NOT
+    // at construction — the menu shows first and the initial download
+    // stays small. The procedural operator renders until Leon loads.
+    this._survivorLoadStarted = false;
+    this._stuntAnimsStarted = false;
+  }
+
+  // v3.22 — start loading Leon (GLB + textures + ESSENTIAL animations).
+  // Called from the menu START flow; safe to call twice.
+  beginLoading() {
+    if (this._survivorLoadStarted) return;
+    this._survivorLoadStarted = true;
     this.loadSurvivorCharacter();
   }
 
@@ -921,7 +933,9 @@ class PlayerOperator {
     }
   }
 
-  loadMixamoFBXAnimations() {
+  // v3.22 — STUNT clips: never needed to start the match, so they
+  // stream in AFTER gameplayStart (loadStuntAnims) during wave 1.
+  loadMixamoFBXAnimations(deferredOnly = false) {
     if (typeof THREE.FBXLoader === 'undefined') return;
     const fbxLoader = new THREE.FBXLoader();
 
@@ -1037,7 +1051,13 @@ class PlayerOperator {
       'hitReaction', 'headHit', 'dyingKneel'
     ]);
 
+    // v3.22 — STUNT clips (wall run / backflip / shootdodge / kick):
+    // deferred to after gameplayStart. Everything else is essential
+    // (locomotion, aim/shoot, reload, hit, death) and loads at match
+    // start. fadeToAction falls back if a stunt clip is missing.
+    const STUNT_ANIM_KEYS = new Set(['wallRunLeft', 'wallRunRight', 'wallFlip', 'flyingKick', 'jumpForward', 'jumpBackward']);
     for (const [key, path] of Object.entries(animMap)) {
+      if (deferredOnly ? !STUNT_ANIM_KEYS.has(key) : STUNT_ANIM_KEYS.has(key)) continue;
       fbxLoader.load(
         path,
         (fbx) => {
@@ -1116,6 +1136,15 @@ class PlayerOperator {
         }
       );
     }
+  }
+
+  // v3.22 — load Leon's stunt clips in the background during wave 1
+  // (after gameplayStart). Safe to call twice; no-ops if the mixer
+  // doesn't exist yet (Leon hasn't loaded).
+  loadStuntAnims() {
+    if (this._stuntAnimsStarted || !this.mixer) return;
+    this._stuntAnimsStarted = true;
+    this.loadMixamoFBXAnimations(true);
   }
 
   fadeToAction(name, duration = 0.2) {
@@ -2882,16 +2911,20 @@ class PlayerOperator {
           hitDist = h.distance;
           const zb = h.object.userData ? h.object.userData.zombie : null;
           if (zb && zb.alive) {
-            // Headshot: hit point above the zombie's shoulders (~1.5m up) = 2x damage
-            const headshot = h.point.y > zb.scene.position.y + 1.5;
-            // Leg hit: hit point below hip height (~0.9m) damages the legs too
+            // Headshot: hit point above the zombie's shoulders = 2x damage.
+            // Leg hit: hit point below hip height damages the legs too
             // (cripple system: enough leg damage -> stumble, then crawl).
+            // v3.22: both thresholds scale with the zombie's body height
+            // (the 2.5m boss's head is at ~2.4m — a shot at 1.8m is his
+            // chest, not a headshot). Defaults keep 1.5/0.9 for normal
+            // zombies.
+            const headshot = h.point.y > zb.scene.position.y + (zb.headshotY !== undefined ? zb.headshotY : 1.5);
             // A leg shot does only 25% BODY damage (you hit a leg, not the
             // chest) but FULL leg damage, so the zombie survives long enough
             // to be crippled instead of just dying from the body damage —
             // otherwise the wave-2/3 crawl thresholds (60%/90%) could never
             // be reached before the body HP ran out.
-            const legHit = h.point.y < zb.scene.position.y + 0.9;
+            const legHit = h.point.y < zb.scene.position.y + (zb.legY !== undefined ? zb.legY : 0.9);
             const dmg = headshot ? 68 : 34;
             const bodyDmg = (legHit && !headshot) ? Math.round(dmg * 0.25) : dmg;
             // v3.18: pass the world hit height so takeDamage can play the

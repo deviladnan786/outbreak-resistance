@@ -73,11 +73,28 @@ const ZOMBIE_TYPES = {
     attackWindup: 0.3, attackDur: 0.7
   },
   // --- boss (brute role, replaced) ---
+  // v3.22b — BOSS ATTACKS: chase is the normal zombie 'walk' (the
+  // stomp walk is gone — he stomped non-stop because he was always
+  // chasing); he attacks with BOTH 'sweep' and 'slam', alternating each
+  // swing. Each attack has its own windup/duration, matched to its
+  // clip: sweep connects ~1.0s into its 2.43s clip (arm extended across
+  // the front at frames 31-37 of 73), slam keeps the old 0.6/1.2. He
+  // also roars when he first SPOTS the player (within ~15m, in his
+  // forward arc) and when he enrages after ~6s of chasing without
+  // reaching attack range (roar -> run at 2.2 m/s -> jump).
   skeleton: {
     file: 'assets/zombies/fbx/skeleton.fbx',
     speed: 0.95, hp: 400, dmg: 25, range: 1.9, radius: 0.7, xp: 30, legHp: 250,
-    chase: 'stomp', attack: 'slam', hit: 'hit_feral', death: 'death_brute', crawl: 'crawl',
-    attackWindup: 0.6, attackDur: 1.2
+    chase: 'walk', attack: 'sweep', attackAlt: 'slam', hit: 'hit_feral', death: 'death_brute', crawl: 'crawl',
+    attackWindup: 1.0, attackDur: 2.43,
+    attackAltWindup: 0.6, attackAltDur: 1.2,
+    // v3.22 — BOSS HEIGHT: 2.5m tall (head and shoulders above Leon's
+    // 1.8m). Measured in-game before the change: the stomp walk's
+    // skinned height runs 1.64–2.05m (mean 1.91m), head-top 1.90m when
+    // upright — so 2.5/1.90 = 1.32. Stats unchanged (HP/speed/dmg as
+    // above); the scale applies to the body only, and the hitbox, health
+    // bar, ground ring and hit-location thresholds scale with it.
+    scale: 1.32
   },
   // --- Romero (Mixamo stock zombie, bare-chested, bloody) — joins wave 2 ---
   // NOTE: Mixamo ships his bones as mixamorig5:* — the "5" was stripped to
@@ -112,8 +129,14 @@ const ZOMBIE_CLIPS = {
   lunge: 'lunge.fbx',
   hit_feral: 'hit_feral.fbx',
   death_feral: 'death_feral.fbx',
-  stomp: 'stomp.fbx',
+  // v3.22b — boss attacks: 'sweep' (swipe) + 'slam' (overhead two-hand),
+  // alternating each swing; 'roar' is his spawn intro. 'stomp' was
+  // REMOVED (it was his chase clip — he stomped non-stop; 'walk' is his
+  // chase now). The stomp.fbx FILE stays on disk (no-deletion rule); it
+  // is simply no longer loaded or referenced by any zombie.
   slam: 'slam.fbx',
+  sweep: 'sweep.fbx',
+  roar: 'roar.fbx',
   death_brute: 'death_brute.fbx',
   // v3.18 — Mixamo hit/death/bite clips (animation-only FBX, extracted
   // from the pack-demo downloads). Different walks per zombie: the
@@ -148,8 +171,28 @@ const ZOMBIE_CLIPS = {
   groin_hit_revenant: 'groin_hit_revenant.fbx',
   zombie_dying_revenant: 'zombie_dying_revenant.fbx',
   zombie_biting_revenant: 'zombie_biting_revenant.fbx',
-  dying_lying_revenant: 'dying_lying_revenant.fbx'
+  dying_lying_revenant: 'dying_lying_revenant.fbx',
+  // v3.22b — boss jump: Mixamo "Mutant Jumping" (Mutant Eagle Jump,
+  // downloaded on the skeleton boss himself). Hop-then-big-jump:
+  // small hop, deep crouch, big airborne jump, landing crouch, stand.
+  // 96 frames / 3.20s. Boss-only, played in the enrage sequence
+  // (roar -> run -> jump). Deferred clip.
+  jump: 'jump.fbx'
 };
+
+// v3.22 — LAZY LOAD: wave-1 types/clips load at match start (menu
+// START); the rest stream in during wave 1, AFTER gameplayStart fires,
+// so they never count toward the CrazyGames initial download. Wave 1
+// only ever needs walker/prisoner/zombiegirl.
+const WAVE1_TYPES = ['walker', 'prisoner', 'zombiegirl'];
+const DEFERRED_TYPES = ['parasite', 'skeleton', 'romero'];
+// Clips used ONLY by deferred types (parasite: run/hit_feral/death_feral;
+// skeleton: slam/sweep/roar/death_brute/kip_up/jump). Every other clip is
+// needed by a wave-1 zombie — incl. 'lunge', which the constructor
+// builds for EVERY zombie as the crawl-attack fallback, and 'walk',
+// which the boss now uses as his chase clip (loaded at match start).
+const DEFERRED_CLIPS = new Set(['run', 'hit_feral', 'death_feral', 'slam', 'sweep', 'roar', 'death_brute', 'kip_up', 'jump']);
+const WAVE1_CLIPS = Object.keys(ZOMBIE_CLIPS).filter((c) => !DEFERRED_CLIPS.has(c));
 
 // Mixed waves — never a single type. Shamblers from wave 1, the fast
 // parasite joins wave 2, the skeleton boss joins wave 3.
@@ -220,6 +263,20 @@ class Zombie {
     // the clone's own bones.
     this.scene = THREE.SkeletonUtils.clone(manager.templates[typeKey]);
     this.scene.position.set(x, 0, z);
+    // v3.22 — BOSS HEIGHT: per-type body scale (skeleton 1.32 → ~2.5m).
+    // Applied to the scene root so the mesh, skeleton and animations all
+    // scale together. The hitbox/bar/ring below are sized against the
+    // body height, not the counter-scale alone.
+    const bodyScale = this.cfg.scale || 1;
+    this.scene.scale.multiplyScalar(bodyScale);
+    this._bodyScale = bodyScale;
+    // Hit-location thresholds scale with body height — the boss's head
+    // is at ~2.4m, so his headshot line is higher than a normal
+    // zombie's (a shot at 1.8m is his chest, not a headshot).
+    this.headshotY = 1.5 * bodyScale;
+    this.legY = 0.9 * bodyScale;
+    this.upperY = 1.0 * bodyScale;
+    this.groinY = 0.5 * bodyScale;
     this.scene.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -253,8 +310,12 @@ class Zombie {
     const hitGeo = new THREE.CylinderGeometry(this.cfg.radius, this.cfg.radius, 1.9, 8);
     const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
     this.hitbox = new THREE.Mesh(hitGeo, hitMat);
-    this.hitbox.scale.set(invS, invS, invS);
-    this.hitbox.position.set(0, 0.95 * invS, 0);
+    // v3.22: hitbox height scales with the body (boss: 1.9m × 1.32 =
+    // 2.51m tall, centred at 0.95m × 1.32 = 1.25m, so it spans the full
+    // body 0–2.51m). Radius stays cfg.radius (already generous for the
+    // boss). The scale.y counter-scale keeps the WORLD height exact.
+    this.hitbox.scale.set(invS, invS * bodyScale, invS);
+    this.hitbox.position.set(0, 0.95 * bodyScale * invS, 0);
     this.hitbox.userData.zombie = this;
     this.scene.add(this.hitbox);
     this.manager.registerHitMesh(this.hitbox);
@@ -269,7 +330,10 @@ class Zombie {
     this._hpMat = new THREE.SpriteMaterial({ map: this._hpTex, transparent: true, depthWrite: false });
     this._hpSprite = new THREE.Sprite(this._hpMat);
     this._hpSprite.scale.set(0.9 * invS, 0.1125 * invS, 1);
-    this._hpSprite.position.set(0, 2.15 * invS, 0);
+    // v3.22: bar height scales with the body — the boss's bar sits at
+    // 2.15m × 1.32 = 2.84m, above his 2.5m head (not floating at 2.15m
+    // in front of his chest). Bar width stays 0.9m.
+    this._hpSprite.position.set(0, 2.15 * bodyScale * invS, 0);
     this.scene.add(this._hpSprite);
     this._drawHpBar();
 
@@ -283,7 +347,9 @@ class Zombie {
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
     this._groundRing = new THREE.Mesh(ringGeo, ringMat);
     this._groundRing.rotation.x = -Math.PI / 2;
-    this._groundRing.scale.set(invS, invS, invS);
+    // v3.22: ring radius scales with the body (boss: 0.45–0.62m × 1.32 =
+    // 0.59–0.82m, matching his bigger footprint).
+    this._groundRing.scale.set(invS * bodyScale, invS * bodyScale, invS);
     this._groundRing.position.set(0, 0.06 * invS, 0);
     this.scene.add(this._groundRing);
 
@@ -303,7 +369,16 @@ class Zombie {
     const sharedExtra = this.typeKey === 'walker' ?
       ['hit_reaction_revenant', 'head_hit_revenant', 'shoulder_hit_fall_revenant', 'groin_hit_revenant', 'zombie_dying_revenant', 'zombie_biting_revenant', 'dying_lying_revenant'] :
       ['hit_reaction', 'head_hit', 'shoulder_hit_fall', 'groin_hit', 'zombie_dying', 'zombie_biting', 'dying_lying', 'kip_up'];
-    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge', ...sharedExtra]) {
+    // v3.22b — boss extras: his alternate attack ('slam'), his roar
+    // clip (spot roar + enrage roar), the shared 'run' clip (enrage
+    // run), and the 'jump' clip slot (Mixamo "Mutant Jumping" — wired
+    // when the file lands; the constructor guards with `if (clip)`, so
+    // the slot is inert until then). All are deferred clips (loaded
+    // during wave 1, so they exist by the time a boss spawns in wave 3).
+    const bossExtra = [];
+    if (this.cfg.attackAlt) bossExtra.push(this.cfg.attackAlt);
+    if (this.typeKey === 'skeleton') bossExtra.push('roar', 'run', 'jump');
+    for (const clipName of [this.cfg.chase, this.cfg.attack, this.cfg.hit, this.cfg.death, this.cfg.crawl, 'lunge', ...sharedExtra, ...bossExtra]) {
       const clip = manager.clips[clipName];
       if (clip) this.actions[clipName] = this.mixer.clipAction(clip);
     }
@@ -312,8 +387,31 @@ class Zombie {
     // WALK VARIETY: each zombie animates at a slightly different rhythm
     // (0.92–1.12x) so same-clip zombies never march in lockstep.
     this.mixer.timeScale = 0.92 + Math.random() * 0.2;
+    // BOSS SPOT ROAR + ENRAGE (v3.22b): the skeleton roars when he
+    // SPOTS the player (within ~15m, in his forward arc) — NOT on
+    // spawn. _spotRoared makes it once per boss. If he walks ~6s
+    // without reaching attack range he enrages: roar, run (2.2 m/s),
+    // then a jump at the player (Mixamo "Mutant Jumping"). _enrageCooldown (15s)
+    // stops the sequence spamming.
+    this._spotRoared = false;
+    this._chaseNoRangeT = 0;
+    this._enrageCooldown = 0;
     this._tmpVel = new THREE.Vector3();
     this._tmpDir = new THREE.Vector3();
+    // v3.22c — FEET-DIP FIX (boss only): the walk clip sinks the feet
+    // ~0.18m below the ground for the whole stride (measured in the
+    // isolated test), and the jump crouch sinks the waist cloth. The
+    // runtime ground clamp in update() lifts the scene just enough
+    // that the lowest foot/toe bone clears the ground. Collect the
+    // foot/toe bones once here (mixamorigLeftFoot/RightFoot, ToeBase,
+    // Toe_End). If none are found the clamp is inert.
+    this._groundBones = [];
+    this._tmpClampV = new THREE.Vector3();
+    if (this.typeKey === 'skeleton') {
+      this.scene.traverse((o) => {
+        if (o.isBone && /foot|toe/i.test(o.name)) this._groundBones.push(o);
+      });
+    }
   }
 
   // Current chase clip + speed: crawl clip at 40% speed once crippled.
@@ -322,6 +420,78 @@ class Zombie {
   }
   speedNow() {
     return this.crawling ? this.cfg.speed * 0.4 : this.cfg.speed;
+  }
+
+  // ---- BOSS SPOT ROAR + ENRAGE (v3.22b, skeleton only) ----
+  // Spot roar: he roars ONCE when he first spots the player (within
+  // ~15m, in his forward arc). One-shot, stands still for the roar,
+  // then resumes chasing. A hit interrupts it (takeDamage forces 'hit').
+  _startSpotRoar() {
+    if (!this.actions['roar']) return false;
+    this._spotRoared = true;
+    this.state = 'roar';
+    const rc = this.actions['roar'];
+    const dur = rc.getClip() ? rc.getClip().duration : 2.0;
+    this.stateT = dur / this.mixer.timeScale;
+    this.playOnce('roar', 0.1);
+    return true;
+  }
+  // Enrage: he has walked ~6s without reaching attack range (player is
+  // far / kiting him). Sequence: frustration roar -> run (2.2 m/s) ->
+  // jump at the player (Mutant Jumping clip) -> resume chase. Cooldown 15s so it
+  // never spams. The enrage timer resets whenever he reaches range.
+  _startEnrage() {
+    if (!this.actions['roar']) return false;
+    this._enrageCooldown = 15;
+    this._chaseNoRangeT = 0;
+    this.state = 'enrage_roar';
+    const rc = this.actions['roar'];
+    const dur = rc.getClip() ? rc.getClip().duration : 2.0;
+    this.stateT = dur / this.mixer.timeScale;
+    this.playOnce('roar', 0.1);
+    return true;
+  }
+  // Enrage run: the shared 'run' clip at 2.2 m/s toward the player, for
+  // up to 3s — ends early if he reaches attack range (then he just
+  // attacks; no jump needed when he is already on the player).
+  _startEnrageRun() {
+    if (!this.actions['run']) { this.state = 'chase'; this.playClip(this.chaseClip(), 0.12); return; }
+    this.state = 'enrage_run';
+    this._enrageRunT = 0;
+    this._enrageRunDur = 3.0;
+    this._enrageRunSpeed = 2.2;
+    this.playClip('run', 0.1);
+  }
+  // Enrage leap: REPLACED by the jump clip (v3.22b, user decision).
+  // The boss's jump is the Mixamo "Mutant Jumping" animation, NOT a
+  // procedural arc. _startEnrageJump (below) plays the 'jump' clip
+  // slot; until that clip is wired in, the jump step is skipped and
+  // the sequence goes run -> chase. There is NO procedural leap
+  // fallback — if the clip fails to bind, that is reported, not hidden.
+  _startEnrageJump(player) {
+    if (!this.actions['jump']) {
+      // Jump clip not wired yet — skip the jump step, resume the chase.
+      this.state = 'chase';
+      this.playClip(this.chaseClip(), 0.12);
+      return;
+    }
+    // Travel toward the player's position at jump start, capped at 8m.
+    // The clip itself provides the vertical arc (Hips Y, kept by the
+    // loader like the walk bob) — the code only moves him horizontally,
+    // the same way the chase branch moves him while the walk clip plays.
+    const dx = player.position.x - this.scene.position.x;
+    const dz = player.position.z - this.scene.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const jumpDist = Math.min(d, 8);
+    this._jumpDirX = dx / d;
+    this._jumpDirZ = dz / d;
+    const jc = this.actions['jump'];
+    const jumpDur = jc.getClip() ? jc.getClip().duration : 1.0;
+    this._jumpDur = jumpDur / this.mixer.timeScale;
+    this._jumpSpeed = jumpDist / this._jumpDur;
+    this._jumpT = 0;
+    this.state = 'enrage_jump';
+    this.playOnce('jump', 0.08);
   }
 
   playClip(name, fade = 0.15) {
@@ -360,8 +530,10 @@ class Zombie {
     this.crawling = true;
     // Lower + shorten the hitbox so body shots still land on a low target
     // (counter-scaled — see SCALE FIX in the constructor).
-    this.hitbox.scale.y = 0.5 * this._invScale;
-    this.hitbox.position.y = 0.45 * this._invScale;
+    // v3.22: the crawl hitbox scales with body height too (boss crawls
+    // at 0.95m × 1.32 = 1.25m tall, centred at 0.45m × 1.32 = 0.59m).
+    this.hitbox.scale.y = 0.5 * this._bodyScale * this._invScale;
+    this.hitbox.position.y = 0.45 * this._bodyScale * this._invScale;
     if (this.state === 'chase') this.playClip(this.cfg.crawl, 0.15);
   }
 
@@ -485,13 +657,15 @@ class Zombie {
     const relY = (hitY !== undefined && hitY !== null) ? hitY - this.scene.position.y : 1.2;
     const headClip = isWalker ? 'head_hit_revenant' : 'head_hit';
     const reactClip = isWalker ? 'hit_reaction_revenant' : 'hit_reaction';
-    if (relY > 1.5) {
+    // v3.22: zone bands scale with body height (boss: head >1.98m,
+    // upper 1.32–1.98m, groin 0.66–1.32m — his real proportions).
+    if (relY > this.headshotY) {
       // HEAD: the 'head_hit' reaction (hands to the head, staggers back).
       if (this.actions[headClip]) this.playClip(headClip, 0.06);
       else this.playClip(this.cfg.hit, 0.06);
       return;
     }
-    if (relY >= 1.0) {
+    if (relY >= this.upperY) {
       // UPPER BODY / SHOULDER: accumulate toward the 70% fall. At the
       // threshold the zombie plays the shoulder fall and stands back up.
       this.upperDmg += amount;
@@ -499,7 +673,7 @@ class Zombie {
         this.nextUpperFallAt += 0.7 * this.maxHp;
         if (this.startZoneFall('shoulder')) return;
       }
-    } else if (relY >= 0.5) {
+    } else if (relY >= this.groinY) {
       // STOMACH / GROIN: accumulate toward the 70% fall (doubled over).
       this.groinDmg += amount;
       if (this.groinDmg >= this.nextGroinFallAt && !this.crawling) {
@@ -551,6 +725,8 @@ class Zombie {
   update(dt, player, zombies, environment) {
     if (!this.alive) return false;
     this.mixer.update(dt);
+    // Enrage cooldown ticks down (boss only — other zombies never set it).
+    if (this._enrageCooldown > 0) this._enrageCooldown -= dt;
 
     // ROOT-TILT FIX: the walk clip rotates the character root for the
     // prisoner/zombiegirl rigs (measured ~0.75 rad / 43 deg pitch). The
@@ -558,6 +734,29 @@ class Zombie {
     // every state — yaw is set below when chasing. Zombie stays upright.
     this.scene.rotation.x = 0;
     this.scene.rotation.z = 0;
+
+    // FEET-DIP FIX (v3.22c, boss only): after the mixer updates, lift
+    // the scene just enough that the lowest foot/toe bone clears the
+    // ground. The sole sits ~0.02m below the lowest foot bone
+    // (measured: walk offset 0.008–0.017m), so the lift is
+    // max(0, 0.02 - minFootY). Recomputed every frame, so it returns
+    // to 0 when the feet are already up (jump peak) and never floats
+    // the feet. Runs before every state branch, so it covers chase,
+    // attack, dying, zonefall, kip-up, roar and the enrage jump. The
+    // hitbox/bar lift WITH the body (they are scene children, and the
+    // hit thresholds are relative to scene.position.y, so they stay
+    // aligned); the ground ring is countered so it stays on the floor.
+    if (this.typeKey === 'skeleton' && this._groundBones.length > 0) {
+      let minFootY = Infinity;
+      for (let i = 0; i < this._groundBones.length; i++) {
+        this._groundBones[i].getWorldPosition(this._tmpClampV);
+        const y = this._tmpClampV.y - this.scene.position.y;
+        if (y < minFootY) minFootY = y;
+      }
+      const lift = Math.max(0, 0.02 - minFootY);
+      this.scene.position.y = lift;
+      if (this._groundRing) this._groundRing.position.y = (0.06 - lift) * this._invScale;
+    }
 
     // Attack cooldown ticks down so swings have a readable gap.
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
@@ -646,12 +845,76 @@ class Zombie {
       return true;
     }
 
+    // BOSS ROAR (v3.22b): spot roar ('roar') or enrage roar
+    // ('enrage_roar') — one-shot, stands still, then resumes. A hit
+    // interrupts it (takeDamage forces the 'hit' state, so this branch
+    // can never get stuck). After the spot roar he chases; after the
+    // enrage roar he runs.
+    if (this.state === 'roar' || this.state === 'enrage_roar') {
+      this.stateT -= dt;
+      if (this.stateT <= 0) {
+        if (this.state === 'enrage_roar') this._startEnrageRun();
+        else { this.state = 'chase'; this.playClip(this.chaseClip(), 0.12); }
+      }
+      return true;
+    }
+
+    // ENRAGE RUN (v3.22b): the boss runs at 2.2 m/s toward the player
+    // (shared 'run' clip). Ends early if he reaches attack range (then
+    // he just attacks — no jump needed when he is already on the
+    // player); otherwise, after up to 3s, he jumps to close the gap.
+    if (this.state === 'enrage_run') {
+      const px = player.position.x, pz = player.position.z;
+      const dx = px - this.scene.position.x;
+      const dz = pz - this.scene.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      this._enrageRunT += dt;
+      if (dist > 0.001) {
+        this.scene.rotation.set(0, Math.atan2(dx, dz), 0);
+        this._tmpDir.set(dx / dist, 0, dz / dist);
+        this.scene.position.addScaledVector(this._tmpDir, this._enrageRunSpeed * dt);
+        if (environment && environment.resolveCollisions) {
+          environment.resolveCollisions(this.scene.position, this._tmpDir, this.cfg.radius, 0);
+        }
+      }
+      if (dist <= this.cfg.range) {
+        this.state = 'chase';
+        this.playClip(this.chaseClip(), 0.12);
+      } else if (this._enrageRunT >= this._enrageRunDur) {
+        this._startEnrageJump(player);
+      }
+      return true;
+    }
+
+    // ENRAGE JUMP (v3.22b): the boss jumps toward the player playing
+    // the Mixamo "Mutant Jumping" clip. The clip provides the vertical
+    // arc (Hips Y); the code moves him horizontally toward the player
+    // at jump speed. Lands and resumes the chase; the enrage timer
+    // resets so he walks normally again (the 15s cooldown blocks an
+    // immediate re-enrage).
+    if (this.state === 'enrage_jump') {
+      this._jumpT += dt;
+      this.scene.position.x += this._jumpDirX * this._jumpSpeed * dt;
+      this.scene.position.z += this._jumpDirZ * this._jumpSpeed * dt;
+      this.scene.rotation.set(0, Math.atan2(this._jumpDirX, this._jumpDirZ), 0);
+      if (this._jumpT >= this._jumpDur) {
+        this.state = 'chase';
+        this._chaseNoRangeT = 0;
+        this.playClip(this.chaseClip(), 0.12);
+      }
+      return true;
+    }
+
     if (this.state === 'attack') {
       this.stateT -= dt;
       // Damage lands mid-windup ONLY if the swing really connects: the
       // player must still be in range AND in front of the zombie (facing
       // check), so dodging behind it or sprinting past avoids the hit.
-      if (!this.damageDealt && this.stateT <= this.cfg.attackDur - this.cfg.attackWindup) {
+      // v3.22b: the timing is the CURRENT attack's own windup/duration
+      // (the boss alternates sweep/slam, each with its own timing).
+      const atkWindup = (this._attackWindup !== undefined) ? this._attackWindup : this.cfg.attackWindup;
+      const atkDur = (this._attackDur !== undefined) ? this._attackDur : this.cfg.attackDur;
+      if (!this.damageDealt && this.stateT <= atkDur - atkWindup) {
         this.damageDealt = true;
         const d = this.scene.position.distanceTo(player.position);
         const fx = Math.sin(this.scene.rotation.y), fz = Math.cos(this.scene.rotation.y);
@@ -679,6 +942,26 @@ class Zombie {
     const dx = px - this.scene.position.x;
     const dz = pz - this.scene.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
+    // BOSS SPOT ROAR + ENRAGE (v3.22b, skeleton only): he roars the
+    // first time he SPOTS the player (within ~15m, in his forward arc).
+    // Facing is read BEFORE he turns to face the player this frame, so
+    // it is a real "he sees you" check, not a tautology. If he walks
+    // ~6s without reaching attack range, he enrages instead (roar ->
+    // run -> jump), gated by the 15s cooldown.
+    if (this.typeKey === 'skeleton' && !this.crawling) {
+      const fx = Math.sin(this.scene.rotation.y), fz = Math.cos(this.scene.rotation.y);
+      const facing = dist > 0.001 ? (fx * dx + fz * dz) / dist : 1;
+      if (!this._spotRoared && dist <= 15 && facing > 0.5) {
+        this._startSpotRoar();
+        return true;
+      }
+      if (dist > this.cfg.range) this._chaseNoRangeT += dt;
+      else this._chaseNoRangeT = 0;
+      if (this._chaseNoRangeT >= 6 && this._enrageCooldown <= 0) {
+        this._startEnrage();
+        return true;
+      }
+    }
     if (dist > 0.001) {
       this._tmpDir.set(dx / dist, 0, dz / dist);
       // Face the player (model faces +Z at rotation 0). rotation.set
@@ -715,13 +998,27 @@ class Zombie {
     // attack); falls back to the crawl clip if the retarget is missing.
     if (dist <= this.cfg.range && this.attackCooldown <= 0) {
       this.state = 'attack';
-      this.stateT = this.cfg.attackDur;
+      // v3.22b — ALTERNATING BOSS ATTACKS: the skeleton alternates
+      // sweep / slam each swing (first swing is the slam, then sweep,
+      // then slam...). Each attack uses its OWN windup/duration so the
+      // damage lands when that clip actually connects. Other zombies
+      // have no attackAlt, so they always use cfg.attack.
+      let atkClip = this.cfg.attack;
+      if (this.cfg.attackAlt) {
+        this._attackFlip = !this._attackFlip;
+        atkClip = this._attackFlip ? this.cfg.attackAlt : this.cfg.attack;
+      }
+      this._attackClip = atkClip;
+      const isAlt = atkClip === this.cfg.attackAlt;
+      this._attackWindup = isAlt ? (this.cfg.attackAltWindup !== undefined ? this.cfg.attackAltWindup : this.cfg.attackWindup) : this.cfg.attackWindup;
+      this._attackDur = isAlt ? (this.cfg.attackAltDur !== undefined ? this.cfg.attackAltDur : this.cfg.attackDur) : this.cfg.attackDur;
+      this.stateT = this._attackDur;
       this.damageDealt = false;
       if (this.crawling) {
         const biteClip = this.typeKey === 'walker' ? 'zombie_biting_revenant' : 'zombie_biting';
         this.playClip(this.actions[biteClip] ? biteClip : this.cfg.crawl, 0.08);
       } else {
-        this.playClip(this.cfg.attack, 0.08);
+        this.playClip(atkClip, 0.08);
       }
       if (window.soundEngine && window.soundEngine.playZombieAttack) window.soundEngine.playZombieAttack();
     }
@@ -755,31 +1052,89 @@ class ZombieManager {
     this._markerMat = new THREE.MeshBasicMaterial({ color: 0xff2233, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
     this._xpGeo = new THREE.SphereGeometry(0.14, 10, 10);
     this._xpMat = new THREE.MeshBasicMaterial({ color: 0x39ff6a });
-    this.loadTemplates();
+    // v3.22 — LAZY LOAD: nothing loads in the constructor. Wave-1 assets
+    // load on menu START (beginWave1Load); wave 2-3 assets stream in
+    // during wave 1, after gameplayStart (beginDeferredLoad).
+    this.deferredLoaded = false;
+    this._deferredStarted = false;
+    this._wave1Started = false;
+    this._warmedTypes = new Set();
+    this._warmQueue = [];
+    this._warmPending = [];
+    this._warmTick = 0;
   }
 
-  loadTemplates() {
+  // v3.22 — LAZY LOAD entry points. Wave-1 assets load on menu START;
+  // deferred (wave 2-3) assets stream in during wave 1, after
+  // gameplayStart fires, so they never count toward the CrazyGames
+  // initial download.
+  beginWave1Load() {
+    if (this._wave1Started) return;
+    this._wave1Started = true;
+    this._loadSet(WAVE1_TYPES, WAVE1_CLIPS, () => {
+      // Bone filter first (it needs the templates), then pre-warm the
+      // wave-1 types, THEN flip loaded — spawnOne requires warmed types.
+      this._filterClipBones();
+      this._preWarm(WAVE1_TYPES);
+      this.loaded = true;
+      console.log('[Zombies] Wave-1 characters + clips loaded (FBX runtime).');
+    });
+  }
+
+  beginDeferredLoad() {
+    if (this._deferredStarted) return;
+    this._deferredStarted = true;
+    this._loadSet(DEFERRED_TYPES, [...DEFERRED_CLIPS], () => {
+      this.deferredLoaded = true;
+      console.log('[Zombies] Deferred characters + clips loaded (FBX runtime).');
+      // Re-run the bone filter now that all 5 shared templates exist,
+      // so the new clips get filtered against the full intersection.
+      this._filterClipBones();
+      this._queueWarm(DEFERRED_TYPES);
+    });
+  }
+
+  // Loading-screen progress: wave-1 only (the deferred assets are NOT
+  // part of the match-start load, so START must not wait for them).
+  wave1Total() {
+    return WAVE1_TYPES.length + WAVE1_CLIPS.length;
+  }
+  wave1LoadedCount() {
+    let n = 0;
+    for (const k of WAVE1_TYPES) if (this.templates[k]) n++;
+    for (const c of WAVE1_CLIPS) if (this.clips[c]) n++;
+    return n;
+  }
+
+  // A type is spawnable only when its template is loaded AND warmed.
+  // A type whose file FAILED to load counts as ready once its load pass
+  // is done — spawnOne no-ops without a template, so the queue drains
+  // instead of deadlocking the wave.
+  _typeReady(key) {
+    if (!this.templates[key]) {
+      const deferred = DEFERRED_TYPES.includes(key);
+      return deferred ? this.deferredLoaded : this.loaded;
+    }
+    return this._warmedTypes.has(key);
+  }
+
+  // Queue deferred types for warm-up, one per ~0.75s during wave 1.
+  _queueWarm(typeKeys) {
+    for (const k of typeKeys) this._warmQueue.push(k);
+  }
+
+  // v3.22 — generic loader for one set (wave-1 or deferred). onDone runs
+  // when every file in the set has loaded (or failed).
+  _loadSet(typeKeys, clipNames, onDone) {
     if (typeof THREE.FBXLoader === 'undefined') {
       console.error('[Zombies] FBXLoader unavailable — zombies cannot load.');
       return;
     }
     const loader = new THREE.FBXLoader();
-    const typeKeys = Object.keys(ZOMBIE_TYPES);
-    const clipNames = Object.keys(ZOMBIE_CLIPS);
     let pending = typeKeys.length + clipNames.length;
     const doneOne = () => {
       pending--;
-      if (pending === 0) {
-        this.loaded = true;
-        console.log('[Zombies] All 5 zombie characters + ' + clipNames.length + ' clips loaded (FBX runtime).');
-        // BONE FILTER (v3.18, pack-demo lesson): three r128 PropertyBinding
-        // falls back to the mixer ROOT for tracks whose bone doesn't exist
-        // on that zombie — the Prisoner's one-bone stump hand leaves ~20
-        // right-finger tracks unbound, which bound to root and made a 190m
-        // giant. Filter BEFORE pre-warming so no bad track ever plays.
-        this._filterClipBones();
-        this._preWarm();
-      }
+      if (pending === 0 && onDone) onDone();
     };
     // --- characters ---
     for (const key of typeKeys) {
@@ -877,7 +1232,11 @@ class ZombieManager {
     }
     const sharedKeys = ['prisoner', 'zombiegirl', 'parasite', 'skeleton', 'romero'];
     const loadedShared = sharedKeys.filter((k) => namesByType[k] && namesByType[k].size > 0);
-    if (loadedShared.length < 3) {
+    // v3.22: at wave-1 time only 2 shared templates are loaded
+    // (prisoner, zombiegirl) — the filter must run with 2, or the
+    // Prisoner's stump-hand finger tracks would bind to root (190m
+    // giant bug). It re-runs after the deferred load, when all 5 exist.
+    if (loadedShared.length < 2) {
       console.warn('[Zombies] Bone filter skipped — too few shared templates loaded (' + loadedShared.length + ').');
       return;
     }
@@ -912,12 +1271,16 @@ class ZombieManager {
   // loaded, we render one of EACH type (hidden far below the ground) and
   // force a compile + render, so every shader + texture is ready BEFORE
   // gameplay. No more freeze when a new type spawns.
-  _preWarm() {
+  // typeKeys: which types to warm (wave-1 at match load; deferred types
+  // warm one-by-one via _queueWarm during wave 1). Warmed types are
+  // marked ready for spawning.
+  _preWarm(typeKeys) {
     const game = this.game;
     if (!game || !game.renderer || !game.camera) return;
+    const keys = (typeKeys && typeKeys.length) ? typeKeys : Object.keys(ZOMBIE_TYPES);
     const warmed = [];
     try {
-      for (const key of Object.keys(ZOMBIE_TYPES)) {
+      for (const key of keys) {
         const tpl = this.templates[key];
         if (!tpl) continue;
         const clone = THREE.SkeletonUtils.clone(tpl);
@@ -939,7 +1302,8 @@ class ZombieManager {
       console.warn('[Zombies] Pre-warm failed (non-fatal):', e);
     }
     for (const c of warmed) this.scene.remove(c);
-    console.log('[Zombies] Pre-warmed all zombie shaders/textures.');
+    for (const key of keys) if (this.templates[key]) this._warmedTypes.add(key);
+    console.log('[Zombies] Pre-warmed zombie shaders/textures: ' + keys.join(', ') + '.');
   }
 
   registerHitMesh(mesh) {
@@ -972,7 +1336,9 @@ class ZombieManager {
   }
 
   spawnOne(typeKey) {
-    if (!this.templates[typeKey]) return;
+    // v3.22: never spawn a type that isn't loaded AND warmed (a
+    // deferred type still downloading/warming stays queued).
+    if (!this.templates[typeKey] || !this._warmedTypes.has(typeKey)) return;
     // Spawn 12-17m from the player so they are visible immediately, clamped to the arena
     const angle = Math.random() * Math.PI * 2;
     const dist = 12 + Math.random() * 5;
@@ -1042,12 +1408,55 @@ class ZombieManager {
   update(dt) {
     if (this.gameOver) return;
 
-    // Spawn queue
+    // v3.22 — DEFERRED WARM-UP: warm one queued type at a time, spread
+    // across frames during wave 1, so the shader compile never hitches
+    // a single frame. The clone renders hidden (y=-60) through the
+    // normal render loop, then is removed and the type marked ready.
+    this._warmTick = (this._warmTick || 0) + dt;
+    if (this._warmQueue.length > 0 && this._warmTick >= 0.75) {
+      this._warmTick = 0;
+      const key = this._warmQueue.shift();
+      const tpl = this.templates[key];
+      if (tpl) {
+        const clone = THREE.SkeletonUtils.clone(tpl);
+        clone.position.set(0, -60, 0);
+        const clip = this.clips[ZOMBIE_TYPES[key].chase];
+        if (clip) {
+          const mixer = new THREE.AnimationMixer(clone);
+          mixer.clipAction(clip).play();
+          mixer.update(0.1);
+        }
+        this.scene.add(clone);
+        this._warmPending.push({ key, clone, t: 0.6 });
+      } else {
+        // Template missing (failed load) — mark ready so the spawn
+        // queue drains instead of stalling on this type.
+        this._warmedTypes.add(key);
+      }
+    }
+    for (let i = this._warmPending.length - 1; i >= 0; i--) {
+      const w = this._warmPending[i];
+      w.t -= dt;
+      if (w.t <= 0) {
+        this.scene.remove(w.clone);
+        this._warmedTypes.add(w.key);
+        this._warmPending.splice(i, 1);
+      }
+    }
+
+    // Spawn queue — only spawn types that are fully loaded AND warmed.
+    // A deferred type whose files are still downloading/warming stays
+    // queued; the next READY type spawns instead, so one slow download
+    // never blocks the wave.
     if (this.loaded && this.toSpawn.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = 0.7;
-        this.spawnOne(this.toSpawn.shift());
+        const idx = this.toSpawn.findIndex((k) => this._typeReady(k));
+        if (idx >= 0) {
+          this.spawnTimer = 0.7;
+          this.spawnOne(this.toSpawn.splice(idx, 1)[0]);
+        }
+        // else: no ready type yet — retry next frame (timer stays <= 0)
       }
     }
 

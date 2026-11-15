@@ -33,7 +33,13 @@ class OutbreakGame {
     this.fpsTimer = 0;
     this.framesCount = 0;
     this.missionSeconds = 600; // 10:00 Extraction Countdown
-    this.isPaused = false;
+    // v3.22: paused at load — the HOME/MENU screen shows first and the
+    // match only starts after the player presses START GAME.
+    this.isPaused = true;
+    // v3.22: match lifecycle — gameplayStart fires at match start only.
+    this._matchStarted = false;
+    this._matchLoadStarted = false;
+    this._gameplayActive = false;
 
     // Multi-Mode Camera Settings (Toggle with 'V')
     this.cameraModes = ['THIRD_PERSON', 'TOP_DOWN', 'FIRST_PERSON'];
@@ -63,20 +69,139 @@ class OutbreakGame {
     this.initTouchControls();
     this.initSettingsModal();
     this.initCrazyGamesSDK();
-    this.initLoadingScreen();
+    // v3.22: HOME/MENU first (light HTML/CSS only — no game assets load
+    // until the player presses START GAME). The loading screen runs from
+    // _beginMatchLoad, after START.
+    this.initMenu();
 
     window.addEventListener('resize', () => this.onWindowResize());
-    this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
 
     this.animate();
   }
 
-  // LOADING SCREEN: the game is paused behind it until the player taps
-  // START. That tap is the user gesture browsers require for fullscreen +
-  // orientation lock on mobile, so mobile goes fullscreen + landscape on
-  // the very first tap. The ring + bar track zombie template/clip loads.
-  // The displayed % eases smoothly toward the real target (no jumps), and
-  // START appears only AFTER the display actually reads 100%.
+  // ================================================================
+  // v3.22 — HOME / MENU SCREEN. The page loads straight into this
+  // light HTML/CSS menu (no 3D models, no game assets), so the
+  // initial download is just the page + code. The game world renders
+  // behind it (frozen, paused) for atmosphere; the in-game HUD and
+  // touch UI stay hidden until the match starts (body.menu-open).
+  // ================================================================
+  initMenu() {
+    this.isPaused = true;
+    document.body.classList.add('menu-open');
+    const menu = document.getElementById('menu-screen');
+    const loading = document.getElementById('loading-screen');
+    if (loading) loading.classList.add('hidden');
+    if (!menu) { this.onMenuStart(); return; } // no menu markup: skip straight to loading
+    const startBtn = document.getElementById('menu-start');
+    if (startBtn) startBtn.addEventListener('click', () => this.onMenuStart());
+    const settingsBtn = document.getElementById('menu-settings');
+    if (settingsBtn) settingsBtn.addEventListener('click', () => this.toggleSettingsModal(true));
+    const howtoBtn = document.getElementById('menu-howto');
+    const howtoPanel = document.getElementById('menu-howto-panel');
+    if (howtoBtn && howtoPanel) {
+      howtoBtn.addEventListener('click', () => howtoPanel.classList.remove('hidden'));
+      const backBtn = document.getElementById('menu-howto-close');
+      if (backBtn) backBtn.addEventListener('click', () => howtoPanel.classList.add('hidden'));
+    }
+  }
+
+  // Menu START GAME: hide the menu, show the loading screen, and start
+  // loading wave-1 assets only.
+  onMenuStart() {
+    const menu = document.getElementById('menu-screen');
+    if (menu) menu.classList.add('gone');
+    document.body.classList.remove('menu-open');
+    const loading = document.getElementById('loading-screen');
+    if (loading) loading.classList.remove('hidden');
+    // Mobile: fullscreen on this tap (a real user gesture). The
+    // goFullscreenOnce listener skips menu taps (see initTouchControls),
+    // so this is the single fullscreen request — no double toggle.
+    if (this.isTouch) this.toggleFullscreen();
+    this._beginMatchLoad();
+  }
+
+  // Start loading wave-1 assets only; the loading screen shows progress
+  // and auto-starts the match when wave-1 is ready.
+  _beginMatchLoad() {
+    if (this._matchLoadStarted) return;
+    this._matchLoadStarted = true;
+    if (this.player && this.player.beginLoading) this.player.beginLoading();
+    if (this.zombieManager && this.zombieManager.beginWave1Load) this.zombieManager.beginWave1Load();
+    this.initLoadingScreen();
+  }
+
+  // v3.22 — THE MATCH STARTS: wave-1 assets are ready, the player can
+  // move/shoot. This is the "playable state" — fire gameplayStart HERE
+  // (never at page load), fade out the menu theme, start the in-game
+  // ambience, and kick off the deferred (wave 2-3) background loads.
+  beginMatch() {
+    if (this._matchStarted) return;
+    this._matchStarted = true;
+    this._loadingDone = true;
+    const screen = document.getElementById('loading-screen');
+    if (screen) {
+      screen.classList.add('fading');
+      setTimeout(() => screen.classList.add('gone'), 650);
+    }
+    this.isPaused = false;
+    // Music: menu theme out, in-game ambient drone in.
+    if (window.soundEngine) {
+      if (window.soundEngine.stopMenuMusic) window.soundEngine.stopMenuMusic();
+      if (window.soundEngine.startAmbient) window.soundEngine.startAmbient();
+    }
+    // CrazyGames: the player is now in a playable state.
+    this._sdkGameplayStart();
+    // v3.22 debug snapshot: asset state at the exact gameplayStart
+    // moment (used by the v3.22 verifier — proves the deferred assets
+    // weren't loaded yet when gameplayStart fired; a live check seconds
+    // later is meaningless on localhost, where the deferred files
+    // download in under 2s).
+    if (typeof window !== 'undefined') {
+      window.__atGameplayStart = {
+        templates: this.zombieManager ? Object.keys(this.zombieManager.templates) : [],
+        clips: this.zombieManager ? Object.keys(this.zombieManager.clips).length : 0,
+        stuntAnims: this.player && this.player.actions ? ['wallRunLeft', 'wallRunRight', 'wallFlip', 'flyingKick', 'jumpForward', 'jumpBackward'].filter((k) => this.player.actions[k]) : []
+      };
+    }
+    // Deferred loads run in the background during wave 1 (after
+    // gameplayStart, so they don't count toward the initial download).
+    if (this.zombieManager && this.zombieManager.beginDeferredLoad) this.zombieManager.beginDeferredLoad();
+    if (this.player && this.player.loadStuntAnims) this.player.loadStuntAnims();
+    this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
+  }
+
+  // CrazyGames SDK lifecycle (all calls guarded — the SDK CDN is blocked
+  // in the local test sandbox, and the game must run without it).
+  _sdkGameplayStart() {
+    if (this._gameplayActive) return;
+    try {
+      if (window.CrazyGames && window.CrazyGames.SDK && window.CrazyGames.SDK.game) {
+        window.CrazyGames.SDK.game.gameplayStart();
+        this._gameplayActive = true;
+        console.log('[CrazyGames] gameplayStart (match started).');
+      }
+    } catch (e) { /* SDK unavailable — local sandbox */ }
+  }
+  _sdkGameplayStop() {
+    if (!this._gameplayActive) return;
+    try {
+      if (window.CrazyGames && window.CrazyGames.SDK && window.CrazyGames.SDK.game) {
+        window.CrazyGames.SDK.game.gameplayStop();
+        this._gameplayActive = false;
+        console.log('[CrazyGames] gameplayStop.');
+      }
+    } catch (e) { /* noop */ }
+  }
+
+  // LOADING SCREEN (v3.22): runs AFTER the menu START GAME tap — that
+  // tap was the user gesture browsers require for fullscreen +
+  // orientation lock on mobile, so mobile goes fullscreen + landscape
+  // there (see onMenuStart). The ring + bar track WAVE-1 asset loads
+  // only (deferred wave 2-3 assets stream in during wave 1, after
+  // gameplayStart). The displayed % eases smoothly toward the real
+  // target (no jumps), and the match AUTO-STARTS the moment the display
+  // reads 100% — no second tap (the menu START was the gesture).
   initLoadingScreen() {
     // Pause gameplay until START (the world still renders behind the screen).
     this.isPaused = true;
@@ -99,11 +224,14 @@ class OutbreakGame {
       if (pct) pct.textContent = pc + '%';
     };
     const targetProgress = () => {
+      // v3.22: wave-1 assets ONLY — the deferred wave 2-3 assets are not
+      // part of the match-start load, so the bar must reach 100% without
+      // waiting for them.
       const zm = this.zombieManager;
       let p = 0.05;
-      if (zm) {
-        const total = Object.keys(ZOMBIE_TYPES).length + Object.keys(ZOMBIE_CLIPS).length;
-        const got = Object.keys(zm.templates).length + Object.keys(zm.clips).length;
+      if (zm && zm.wave1Total) {
+        const total = zm.wave1Total();
+        const got = zm.wave1LoadedCount();
         p = 0.05 + 0.85 * (total ? got / total : 0);
       }
       if (this.player && this.player.isSurvivorLoaded) p += 0.10;
@@ -132,13 +260,15 @@ class OutbreakGame {
       if (shown > target) shown = target;
       if (target - shown < 0.002) shown = target;
       setProgress(shown);
-      // START only when the DISPLAY actually reads 100%.
+      // v3.22: the match AUTO-STARTS when the display reads 100% (no
+      // second START tap — the menu START was the gesture). beginMatch
+      // fires gameplayStart and kicks off the deferred loads.
       if (allLoaded() && shown >= 0.999) {
         setProgress(1);
         this._loadingDone = true;
         setTimeout(() => {
           if (tip) tip.textContent = 'ALL SYSTEMS READY';
-          if (startBtn) startBtn.classList.remove('hidden');
+          this.beginMatch();
         }, 500);
         return;
       }
@@ -152,23 +282,18 @@ class OutbreakGame {
       tip.textContent = tips[tipIdx];
     }, 2600);
     if (startBtn) {
-      startBtn.addEventListener('click', () => {
-        // Mobile: fullscreen + landscape on this tap (a real user gesture).
-        if (this.isTouch) {
-          this.toggleFullscreen();
-        }
-        screen.classList.add('fading');
-        setTimeout(() => screen.classList.add('gone'), 650);
-        this.isPaused = false;
-        this.notify('MISSION START: DEFEND QUARANTINE SECTOR 04');
-      });
+      // v3.22 safety net: the START button stays hidden (the match
+      // auto-starts above), but if anything ever reveals it, tapping it
+      // starts the match the same way.
+      startBtn.addEventListener('click', () => this.beginMatch());
     }
     // Failsafe: never SNAP the bar to 100% (the old 30s failsafe did exactly
     // that — on a slow device the bar jumped 31% -> 100% in one frame, the
     // "laggy" look). Instead: if assets ARE loaded but the display is just
     // lagging, rush the easing (10%/frame cap, still smooth). If assets are
     // NOT loaded yet, wait and re-check; only as a last resort (90s) let
-    // the player in with the bar at its true progress.
+    // the player in with the bar at its true progress (v3.22: beginMatch,
+    // not a START reveal).
     let failsafeCount = 0;
     const failsafe = () => {
       if (this._loadingDone) return;
@@ -179,7 +304,7 @@ class OutbreakGame {
         this._loadingDone = true;
         setProgress(targetProgress());
         if (tip) tip.textContent = 'ALL SYSTEMS READY';
-        if (startBtn) startBtn.classList.remove('hidden');
+        this.beginMatch();
       } else {
         setTimeout(failsafe, 30000);
       }
@@ -235,6 +360,7 @@ class OutbreakGame {
   // Player died: stop the swarm, show the game-over overlay with run stats
   onPlayerDeath() {
     this.isPaused = true;
+    this._sdkGameplayStop(); // v3.22: the gameplay session ends here
     const over = document.getElementById('gameover-overlay');
     if (over) {
       const stats = document.getElementById('gameover-stats');
@@ -310,6 +436,7 @@ class OutbreakGame {
     this.missionSeconds = 600;
     this.extracted = false;
     this.isPaused = false;
+    this._sdkGameplayStart(); // v3.22: a new gameplay session starts
     const over = document.getElementById('gameover-overlay');
     if (over) over.classList.add('hidden');
     const title = document.getElementById('gameover-title');
@@ -323,6 +450,7 @@ class OutbreakGame {
     if (this.extracted || this.zombieManager.gameOver) return;
     this.extracted = true;
     this.isPaused = true;
+    this._sdkGameplayStop(); // v3.22: the gameplay session ends here
     const over = document.getElementById('gameover-overlay');
     if (over) {
       const title = document.getElementById('gameover-title');
@@ -660,7 +788,10 @@ class OutbreakGame {
         document.removeEventListener('pointerdown', goFullscreenOnce);
         return;
       }
-      if (e.target && e.target.closest && (e.target.closest('[data-action="fullscreen"]') || e.target.closest('#loading-screen'))) return;
+      // v3.22: also skip taps on the menu screen — onMenuStart requests
+      // fullscreen itself on the START tap, and a second request from
+      // this listener would toggle it straight back off.
+      if (e.target && e.target.closest && (e.target.closest('[data-action="fullscreen"]') || e.target.closest('#loading-screen') || e.target.closest('#menu-screen'))) return;
       self.toggleFullscreen();
       document.removeEventListener('touchstart', goFullscreenOnce);
       document.removeEventListener('pointerdown', goFullscreenOnce);
@@ -776,6 +907,17 @@ class OutbreakGame {
         window.soundEngine.enabled = e.target.checked;
       });
     }
+
+    // v3.22: menu theme music toggle (Settings). Mute stops the theme;
+    // re-enabling restarts it while the menu is still showing.
+    const musicToggle = document.getElementById('menu-music-toggle');
+    if (musicToggle) {
+      musicToggle.addEventListener('change', (e) => {
+        if (window.soundEngine && window.soundEngine.setMenuMusicEnabled) {
+          window.soundEngine.setMenuMusicEnabled(e.target.checked);
+        }
+      });
+    }
   }
 
   toggleSettingsModal(forceState) {
@@ -786,12 +928,20 @@ class OutbreakGame {
     } else {
       this.isPaused = !this.isPaused;
     }
+    // v3.22: before the match starts (menu), the game stays paused no
+    // matter what the modal buttons do.
+    if (!this._matchStarted) this.isPaused = true;
 
     modal.classList.toggle('hidden', !this.isPaused);
     if (this.isPaused) {
       this.input.mouseLeftHeld = false;
       this.input.mouseRightHeld = false;
       if (document.exitPointerLock) document.exitPointerLock();
+      // v3.22: pausing stops the gameplay session (CrazyGames SDK).
+      if (this._matchStarted) this._sdkGameplayStop();
+    } else if (this._matchStarted) {
+      // Resuming re-starts the gameplay session.
+      this._sdkGameplayStart();
     }
   }
 
@@ -800,7 +950,9 @@ class OutbreakGame {
       if (window.CrazyGames && window.CrazyGames.SDK) {
         await window.CrazyGames.SDK.init();
         console.log('[CrazyGames] SDK v3 Initialized successfully.');
-        window.CrazyGames.SDK.game.gameplayStart();
+        // v3.22: gameplayStart is NOT fired here — it fires in beginMatch,
+        // when the player enters a playable state. Firing it at startup
+        // counted the whole menu + loading time as "initial download".
       }
     } catch (err) {
       console.warn('[CrazyGames] SDK Init skipped (running in local sandbox):', err);

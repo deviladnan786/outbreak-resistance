@@ -27,19 +27,37 @@ class SoundEngine {
     this.buffers = {}; // name -> AudioBuffer (decoded real samples)
     this._ambientStarted = false;
     this._groanNames = ['groan1', 'groan2', 'groan3'];
+    // v3.22 — home-screen theme music (synthesized, no audio file).
+    this._menuMusic = null;
+    this._menuMusicEnabled = true;
     this.initOnInteraction();
+  }
+
+  // Create the AudioContext on first user interaction (autoplay policy).
+  // Split out so the match-start path can ensure audio exists too.
+  ensureContext() {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
+    }
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+    this.ctx = new AudioContext();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+    this.masterGain.connect(this.ctx.destination);
+    this.loadSamples();
+    return this.ctx;
   }
 
   initOnInteraction() {
     const unlock = () => {
       if (!this.ctx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioContext();
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
-        this.masterGain.connect(this.ctx.destination);
-        this.loadSamples();
-        this.startAmbient();
+        this.ensureContext();
+        // v3.22: on the menu, start the theme music (not the in-game
+        // ambient drone — that starts when the match starts).
+        if (!window.game || !window.game._matchStarted) this.startMenuMusic();
+        else this.startAmbient();
       }
       if (this.ctx.state === 'suspended') {
         this.ctx.resume();
@@ -95,6 +113,154 @@ class SoundEngine {
       src.start();
     };
     tryStart();
+  }
+
+  // ================================================================
+  // v3.22 — HOME SCREEN THEME MUSIC (fully synthesized, no audio file,
+  // no licensing risk). Mood: zombie-apocalypse — dark, atmospheric,
+  // tense but beautiful. Slow minor-key pad chords (Am – F – Dm – E,
+  // 4s each), a sparse haunting A-minor-pentatonic melody through a
+  // feedback delay, and a low sub pulse. A 16s loop driven by a
+  // lookahead scheduler, so it loops seamlessly. Quiet (tasteful).
+  // Starts on first user interaction (autoplay policy); fades out when
+  // the match starts (stopMenuMusic) and the ambient drone takes over.
+  // ================================================================
+  startMenuMusic() {
+    if (!this.ctx || this._menuMusic || !this._menuMusicEnabled) return;
+    const ctx = this.ctx;
+    const musicGain = ctx.createGain();
+    musicGain.gain.setValueAtTime(this.enabled ? 0.12 : 0, ctx.currentTime);
+    musicGain.connect(this.masterGain);
+    // Feedback delay for the melody — space and haunt.
+    const delay = ctx.createDelay(1.0);
+    delay.delayTime.setValueAtTime(0.42, ctx.currentTime);
+    const fb = ctx.createGain();
+    fb.gain.setValueAtTime(0.35, ctx.currentTime);
+    const wet = ctx.createGain();
+    wet.gain.setValueAtTime(0.5, ctx.currentTime);
+    delay.connect(fb); fb.connect(delay);
+    delay.connect(wet); wet.connect(musicGain);
+    this._menuMusic = {
+      gain: musicGain, delay, fb, wet,
+      timer: null, step: 0, nextTime: ctx.currentTime + 0.1, padNodes: []
+    };
+    this._menuMusic.timer = setInterval(() => this._menuMusicTick(), 200);
+    console.log('[Audio] Menu theme started.');
+  }
+
+  _menuMusicTick() {
+    const m = this._menuMusic;
+    if (!m || !this.ctx) return;
+    const ctx = this.ctx;
+    // Respect the mute toggle live (the settings checkbox assigns
+    // soundEngine.enabled directly).
+    m.gain.gain.setTargetAtTime(this.enabled ? 0.12 : 0, ctx.currentTime, 0.1);
+    // If the tab was throttled, skip missed steps instead of bursting.
+    if (m.nextTime < ctx.currentTime - 0.1) m.nextTime = ctx.currentTime + 0.1;
+    // Schedule ahead so the loop never gaps.
+    while (m.nextTime < ctx.currentTime + 0.6) {
+      this._menuMusicScheduleStep(m.step, m.nextTime);
+      m.step = (m.step + 1) % 32;
+      m.nextTime += 0.5;
+    }
+  }
+
+  _menuMusicScheduleStep(step, t) {
+    const m = this._menuMusic;
+    if (!m) return;
+    const ctx = this.ctx;
+    // Chord progression: Am – F – Dm – E, one chord per 8 steps (4s).
+    const CHORDS = [
+      [110.00, 130.81, 164.81], // Am
+      [87.31, 110.00, 130.81],  // F
+      [73.42, 87.31, 110.00],   // Dm
+      [82.41, 103.83, 123.47]   // E (harmonic-minor tension)
+    ];
+    if (step % 8 === 0) {
+      // Release the previous chord's nodes (their 4.6s life is nearly
+      // over; the new chord's attack masks the cut) — keeps the node
+      // list bounded on a long menu session.
+      for (const n of m.padNodes) { try { if (n.disconnect) n.disconnect(); } catch (_) { /* noop */ } }
+      m.padNodes = [];
+      const chord = CHORDS[(step / 8) | 0];
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.setValueAtTime(750, t);
+      filt.connect(m.gain);
+      m.padNodes.push(filt);
+      for (let i = 0; i < chord.length; i++) {
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(chord[i], t);
+        osc.detune.setValueAtTime(i % 2 === 0 ? -4 : 4, t);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.14, t + 1.5);
+        g.gain.setValueAtTime(0.14, t + 2.5);
+        g.gain.linearRampToValueAtTime(0, t + 4.5);
+        osc.connect(g); g.connect(filt);
+        osc.start(t); osc.stop(t + 4.6);
+        m.padNodes.push(osc, g);
+      }
+    }
+    // Sparse haunting melody (A minor pentatonic) — one note per phrase.
+    const MELODY = [0, 0, 659.25, 0, 0, 0, 523.25, 0, 0, 0, 440.00, 0, 0, 0, 392.00, 0, 0, 0, 659.25, 0, 0, 0, 587.33, 0, 0, 0, 523.25, 0, 0, 0, 440.00, 0];
+    const note = MELODY[step];
+    if (note) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note, t);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+      osc.connect(g); g.connect(m.gain); g.connect(m.delay);
+      osc.start(t); osc.stop(t + 1.5);
+    }
+    // Low sub pulse every 4s (offset by half a bar from the chord).
+    if (step % 8 === 4) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(55, t);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.3, t + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+      osc.connect(g); g.connect(m.gain);
+      osc.start(t); osc.stop(t + 1.0);
+    }
+  }
+
+  // Fade the theme out (match start) and tear the scheduler down.
+  stopMenuMusic(fadeSec = 1.5) {
+    const m = this._menuMusic;
+    if (!m) return;
+    this._menuMusic = null;
+    if (m.timer) clearInterval(m.timer);
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    m.gain.gain.setTargetAtTime(0, t, Math.max(0.1, fadeSec / 3));
+    const nodes = m.padNodes.slice();
+    const delay = m.delay;
+    const gain = m.gain;
+    setTimeout(() => {
+      try {
+        for (const n of nodes) { try { if (n.stop) n.stop(); } catch (_) { /* already stopped */ } if (n.disconnect) n.disconnect(); }
+        if (delay) delay.disconnect();
+        if (gain) gain.disconnect();
+      } catch (_) { /* teardown best-effort */ }
+    }, fadeSec * 1000 + 300);
+  }
+
+  // Menu-music mute toggle (Settings). Off stops the theme; on restarts
+  // it if the menu is still showing.
+  setMenuMusicEnabled(on) {
+    this._menuMusicEnabled = !!on;
+    if (!on) {
+      this.stopMenuMusic(0.5);
+    } else if (this.ctx && (!window.game || !window.game._matchStarted)) {
+      this.startMenuMusic();
+    }
   }
 
   // A zombie groan from the nearest zombie; volume scales with closeness
