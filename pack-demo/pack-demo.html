@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outbreak: Resistance — Zombie Pack Animation Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #101418;
+    font-family: "Segoe UI", Arial, sans-serif; color: #e8ecf1; }
+  #app { display: flex; width: 100%; height: 100%; }
+  #panel { width: 330px; min-width: 330px; height: 100%; overflow-y: auto;
+    background: #171c22; border-right: 1px solid #2a313a; padding: 14px 14px 30px; }
+  #panel h1 { font-size: 17px; letter-spacing: 1px; color: #7ee787; margin-bottom: 2px; }
+  #panel .sub { font-size: 12px; color: #9aa7b4; margin-bottom: 12px; line-height: 1.5; }
+  #status { font-size: 12px; color: #ffd479; margin-bottom: 10px; min-height: 16px; }
+  #now { background: #0e2a14; border: 1px solid #2c5c33; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 12px; }
+  #now .lbl { font-size: 10px; letter-spacing: 2px; color: #7ee787; }
+  #now .name { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  #now .meta { font-size: 12px; color: #9aa7b4; margin-top: 2px; }
+  .controls { display: flex; gap: 8px; margin-bottom: 14px; }
+  .controls button { flex: 1; padding: 9px 0; font-size: 13px; font-weight: 700;
+    border: none; border-radius: 7px; cursor: pointer; background: #2a313a; color: #e8ecf1; }
+  .controls button.on { background: #1f6feb; }
+  .controls button:hover { filter: brightness(1.2); }
+  .pack h2 { font-size: 13px; letter-spacing: 1px; margin: 14px 0 8px; padding-bottom: 4px;
+    border-bottom: 1px solid #2a313a; }
+  .pack h2 .count { float: right; color: #9aa7b4; font-weight: 400; }
+  .anim-btn { display: block; width: 100%; text-align: left; padding: 8px 10px;
+    margin-bottom: 5px; font-size: 13px; background: #222932; color: #dbe2ea;
+    border: 1px solid #2f3844; border-radius: 6px; cursor: pointer; }
+  .anim-btn:hover { background: #2c3642; border-color: #4a5a6c; }
+  .anim-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .anim-btn .dur { float: right; color: #8b98a5; font-size: 11px; }
+  .anim-btn.active .dur { color: #cfe4ff; }
+  #stage { flex: 1; position: relative; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: #7d8894;
+    background: rgba(10,14,18,0.65); padding: 6px 10px; border-radius: 6px; }
+  #err { position: absolute; left: 12px; top: 10px; font-size: 13px; color: #ff9a9a;
+    background: rgba(40,10,10,0.8); padding: 8px 12px; border-radius: 6px; display: none;
+    max-width: 60%; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>🧟 ZOMBIE PACK DEMO</h1>
+    <div class="sub">Outbreak: Resistance — every animation from both Mixamo packs,
+      played on one zombie (Prisoner). Click an animation to test it.
+      Tell us which ones to use in the game.</div>
+    <div id="status">Loading zombie + clips…</div>
+    <div id="now">
+      <div class="lbl">NOW PLAYING</div>
+      <div class="name" id="now-name">—</div>
+      <div class="meta" id="now-meta">—</div>
+    </div>
+    <div class="controls">
+      <button id="btn-pause">⏸ Pause</button>
+      <button id="btn-loop" class="on">🔁 Loop: ON</button>
+    </div>
+    <div class="pack"><h2>😱 SCARY ZOMBIE PACK <span class="count">12</span></h2><div id="list-scary"></div></div>
+    <div class="pack"><h2>🙂 NOT SO SCARY ZOMBIE PACK <span class="count">24</span></h2><div id="list-nss"></div></div>
+  </div>
+  <div id="stage">
+    <div id="err"></div>
+    <div id="hint">Drag to orbit &nbsp;•&nbsp; Scroll to zoom &nbsp;•&nbsp; Space = pause</div>
+  </div>
+</div>
+
+<script src="libs/three.r128.min.js"></script>
+<script src="libs/fflate.min.js"></script>
+<script src="libs/FBXLoader.js"></script>
+<script src="libs/SkeletonUtils.js"></script>
+<script>
+// ---- clip catalogue: [file, display name, pack] ----
+const CLIPS = [
+  // Scary Zombie Pack (12)
+  ['s01-punch-right-hand.fbx', 'Zombie Punching (Right Hand Attack)', 'Scary'],
+  ['s02-kick-snap-rear.fbx', 'Zombie Kicking (Snap Kick Rear Foot)', 'Scary'],
+  ['s03-kick-thrust-rear.fbx', 'Zombie Kicking (Thrust Kick Rear Foot)', 'Scary'],
+  ['s04-headbutt-hand-grab.fbx', 'Zombie Headbutt (Hand Grab)', 'Scary'],
+  ['s05-attack-overhead-two-hand.fbx', 'Zombie Attack (Overhead Two-Hand)', 'Scary'],
+  ['s06-biting-victim-ground.fbx', 'Zombie Biting (Biting Victim On Ground)', 'Scary'],
+  ['s07-biting-standing-to-ground.fbx', 'Zombie Biting (Standing To Biting On Ground)', 'Scary'],
+  ['s08-neck-bite.fbx', 'Zombie Neck Bite', 'Scary'],
+  ['s09-dying-hit-falling-forward.fbx', 'Zombie Dying (Hit And Falling Forward)', 'Scary'],
+  ['s10-death-falling-onto-back.fbx', 'Zombie Death (Falling Onto Back)', 'Scary'],
+  ['s11-punch-jab-right-arm.fbx', 'Zombie Punching (Jab Punch Right Arm)', 'Scary'],
+  ['s12-crawl-forward.fbx', 'Zombie Crawl (Crawling Forward)', 'Scary'],
+  // Not So Scary Zombie Pack (24)
+  ['n01-attack-swipe.fbx', 'Zombie Attack (Swipe)', 'Not So Scary'],
+  ['n02-scream.fbx', 'Zombie Scream', 'Not So Scary'],
+  ['n03-idle-alert.fbx', 'Zombie Idle (Alert)', 'Not So Scary'],
+  ['n04-agonizing.fbx', 'Zombie Agonizing', 'Not So Scary'],
+  ['n05-idle-looking-around.fbx', 'Zombie Idle (Looking Around)', 'Not So Scary'],
+  ['n06-stand-up-stomach.fbx', 'Zombie Stand Up (Laying On Stomach)', 'Not So Scary'],
+  ['n07-running.fbx', 'Zombie Running', 'Not So Scary'],
+  ['n08-stand-up-side.fbx', 'Zombie Stand Up (Laying On Side)', 'Not So Scary'],
+  ['n09-run.fbx', 'Zombie Run', 'Not So Scary'],
+  ['n10-walk.fbx', 'Zombie Walk', 'Not So Scary'],
+  ['n11-idle-twitching.fbx', 'Zombie Idle (Twitching)', 'Not So Scary'],
+  ['n12-idle-standing.fbx', 'Zombie Idle (Standing)', 'Not So Scary'],
+  ['n13-transition-ready-to-alert.fbx', 'Zombie Transition (Ready To Alert)', 'Not So Scary'],
+  ['n14-scratch-idle.fbx', 'Zombie Scratch Idle', 'Not So Scary'],
+  ['n15-idle-upright-twitching.fbx', 'Zombie Idle (Upright Twitching)', 'Not So Scary'],
+  ['n16-turn.fbx', 'Zombie Turn', 'Not So Scary'],
+  ['n17-transition-alert-to-ready.fbx', 'Zombie Transition (Alert To Ready)', 'Not So Scary'],
+  ['n18-reaction-hit-flinch.fbx', 'Zombie Reaction Hit (Flinches)', 'Not So Scary'],
+  ['n19-reaction-hit-stumble-back.fbx', 'Zombie Reaction Hit (Stumble Back)', 'Not So Scary'],
+  ['n20-stumbling.fbx', 'Zombie Stumbling', 'Not So Scary'],
+  ['n21-stand-up-back.fbx', 'Zombie Stand Up (Laying On Back)', 'Not So Scary'],
+  ['n22-walking-zombie.fbx', 'Walking (Zombie Walking)', 'Not So Scary'],
+  ['n23-walking-creeping.fbx', 'Walking (Creeping Zombie Walk)', 'Not So Scary'],
+  ['n24-crawl.fbx', 'Zombie Crawl', 'Not So Scary'],
+];
+
+const statusEl = document.getElementById('status');
+const errEl = document.getElementById('err');
+function showErr(msg) { errEl.style.display = 'block'; errEl.textContent = msg; }
+
+// ---- renderer / scene (bright daylight so the zombie is clearly visible) ----
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9db8c9);
+const camera = new THREE.PerspectiveCamera(45, stage.clientWidth / stage.clientHeight, 0.1, 100);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f70, 0.9));
+const sun = new THREE.DirectionalLight(0xfff2dd, 1.1);
+sun.position.set(4, 8, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -4; sun.shadow.camera.right = 4;
+sun.shadow.camera.top = 4; sun.shadow.camera.bottom = -4;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xcfe4ff, 0.35);
+fill.position.set(-5, 3, -4);
+scene.add(fill);
+
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(9, 48),
+  new THREE.MeshStandardMaterial({ color: 0x5c6650, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(10, 20, 0x3a4a3a, 0x46543f);
+grid.position.y = 0.01;
+scene.add(grid);
+
+// ---- simple drag-orbit camera ----
+let camTheta = 0.55, camPhi = 1.15, camR = 4.6, camTarget = new THREE.Vector3(0, 1.0, 0);
+function updateCamera() {
+  camera.position.set(
+    camTarget.x + camR * Math.sin(camPhi) * Math.sin(camTheta),
+    camTarget.y + camR * Math.cos(camPhi),
+    camTarget.z + camR * Math.sin(camPhi) * Math.cos(camTheta));
+  camera.lookAt(camTarget);
+}
+updateCamera();
+let dragging = false, lx = 0, ly = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY; });
+window.addEventListener('pointerup', () => { dragging = false; });
+window.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  camTheta -= (e.clientX - lx) * 0.006;
+  camPhi = Math.max(0.25, Math.min(1.5, camPhi - (e.clientY - ly) * 0.005));
+  lx = e.clientX; ly = e.clientY;
+  updateCamera();
+});
+renderer.domElement.addEventListener('wheel', (e) => {
+  camR = Math.max(2.2, Math.min(10, camR + e.deltaY * 0.005));
+  updateCamera();
+}, { passive: true });
+
+// ---- state ----
+const clips = {};          // file -> THREE.AnimationClip
+let zombie = null, mixer = null, activeAction = null, currentFile = null;
+let loopOn = true, paused = false;
+
+// ---- build the buttons ----
+function buildList() {
+  for (const [file, name, pack] of CLIPS) {
+    const b = document.createElement('button');
+    b.className = 'anim-btn';
+    b.dataset.file = file;
+    b.innerHTML = name + '<span class="dur" data-dur>…</span>';
+    b.addEventListener('click', () => playClip(file));
+    document.getElementById(pack === 'Scary' ? 'list-scary' : 'list-nss').appendChild(b);
+  }
+}
+buildList();
+
+// ---- play a clip (same track handling as the game: keep Hips Y, freeze X/Z,
+// drop every other bone's .position track so the zombie stays in place) ----
+function playClip(file) {
+  if (!mixer || !clips[file]) return;
+  const clip = clips[file];
+  const next = mixer.clipAction(clip);
+  next.setLoop(loopOn ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+  next.clampWhenFinished = !loopOn;
+  next.reset();
+  if (activeAction && activeAction !== next) activeAction.fadeOut(0.25);
+  next.fadeIn(0.25);
+  next.play();
+  activeAction = next;
+  currentFile = file;
+  const meta = CLIPS.find((c) => c[0] === file);
+  document.getElementById('now-name').textContent = meta[1];
+  document.getElementById('now-meta').textContent =
+    (meta[2] === 'Scary' ? '😱 Scary Zombie Pack' : '🙂 Not So Scary Zombie Pack') +
+    '  •  ' + clip.duration.toFixed(1) + 's  •  ' + (loopOn ? 'looping' : 'plays once');
+  document.querySelectorAll('.anim-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.file === file));
+  setPaused(false);
+}
+
+document.getElementById('btn-loop').addEventListener('click', function () {
+  loopOn = !loopOn;
+  this.textContent = loopOn ? '🔁 Loop: ON' : '🔁 Loop: OFF';
+  this.classList.toggle('on', loopOn);
+  if (currentFile) playClip(currentFile);
+});
+function setPaused(p) {
+  paused = p;
+  if (activeAction) activeAction.paused = p;
+  document.getElementById('btn-pause').textContent = p ? '▶ Play' : '⏸ Pause';
+}
+document.getElementById('btn-pause').addEventListener('click', () => setPaused(!paused));
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); setPaused(!paused); }
+});
+
+// ---- load zombie + clips (same pattern as zombies.js loadTemplates) ----
+const loader = new THREE.FBXLoader();
+let loaded = 0, failed = 0;
+const total = CLIPS.length + 1;
+function tick() {
+  loaded++;
+  statusEl.textContent = 'Loading… ' + loaded + ' / ' + total +
+    (failed ? '  (' + failed + ' failed)' : '');
+  if (loaded >= total) {
+    statusEl.textContent = failed
+      ? 'Ready — ' + (total - failed) + ' loaded, ' + failed + ' failed to load.'
+      : 'Ready — zombie + all 36 animations loaded.';
+    if (clips['s01-punch-right-hand.fbx']) playClip('s01-punch-right-hand.fbx');
+  }
+}
+
+loader.load('zombie/prisoner.fbx', (fbx) => {
+  // unit normalize: Mixamo FBX is in cm (~200 tall) — scale to meters.
+  // NOTE: the scale lives on a WRAPPER group, not on the fbx root itself.
+  // The fbx root's scale gets overwritten by the animation mixer (see the
+  // bone-filter note below), so the wrapper is the only safe place for it.
+  const bb = new THREE.Box3().setFromObject(fbx);
+  const h = bb.max.y - bb.min.y;
+  const wrapper = new THREE.Group();
+  if (h > 10) {
+    wrapper.scale.setScalar(0.01);
+    const bb2 = new THREE.Box3().setFromObject(fbx);
+    wrapper.position.y -= bb2.min.y * 0.01;
+  }
+  // matte materials (same as game)
+  fbx.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (m.isMeshPhongMaterial) {
+          if (m.specular) m.specular.setHex(0x000000);
+          m.shininess = 0;
+          if (m.emissive) m.emissive.setHex(0x000000);
+        }
+      }
+    }
+  });
+  // the set of bones this zombie actually has (the Prisoner has a one-bone
+  // right-hand stump, so ~20 right-finger bones are MISSING — see below)
+  boneNames = new Set();
+  fbx.traverse((o) => { if (o.isBone) boneNames.add(o.name); });
+  zombie = fbx;
+  wrapper.add(zombie);
+  scene.add(wrapper);
+  mixer = new THREE.AnimationMixer(zombie);
+  // clips loaded before the zombie arrived get filtered + stored FIRST,
+  // so the auto-play in tick() below can find s01 already stored.
+  for (const [file, raw] of Object.entries(pendingClips)) { storeClip(file, raw); delete pendingClips[file]; }
+  tick();
+}, undefined, (err) => { failed++; showErr('Failed to load zombie: ' + err); tick(); });
+
+// A clip track whose bone does not exist on this zombie (e.g. the Prisoner's
+// missing right-hand fingers) does NOT stay unbound in three.js r128 —
+// PropertyBinding falls back to the mixer's ROOT, so a finger's scale /
+// rotation track overwrites the whole zombie's transform (that is how the
+// zombie became a 190 m giant with the camera inside it). So: drop every
+// track whose bone is not in this zombie's skeleton, and drop the Armature
+// root tracks (they would reset the root transform the same way).
+const pendingClips = {};
+let boneNames = null;
+function storeClip(file, rawClip) {
+  if (!boneNames) { pendingClips[file] = rawClip; return; }
+  const clip = rawClip.clone();
+  clip.name = file;
+  clip.tracks = clip.tracks.filter((t) => {
+    const node = t.name.split('.')[0];
+    if (node === 'Armature') return false;
+    if (!boneNames.has(node)) return false;
+    if (!t.name.endsWith('.position')) return true;
+    const pnode = t.name.slice(0, -'.position'.length);
+    if (pnode === 'mixamorigHips' || pnode === 'mixamorig:Hips') {
+      const v = t.values, x0 = v[0], z0 = v[2];
+      for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; }
+      return true;
+    }
+    return false;
+  });
+  clips[file] = clip;
+  const dur = document.querySelector('.anim-btn[data-file="' + file + '"] .dur');
+  if (dur) dur.textContent = clip.duration.toFixed(1) + 's';
+}
+
+for (const [file] of CLIPS) {
+  loader.load('anim/' + file, (fbx) => {
+    if (fbx.animations && fbx.animations.length > 0) {
+      storeClip(file, fbx.animations[0]);
+    } else {
+      failed++;
+      console.warn('No animation in', file);
+    }
+    tick();
+  }, undefined, (err) => { failed++; console.error('Failed clip', file, err); tick(); });
+}
+
+// ---- render loop ----
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (mixer) mixer.update(dt);
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = stage.clientWidth / stage.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(stage.clientWidth, stage.clientHeight);
+});
+
+// test hooks for Playwright verification
+window.__demo = {
+  get loadedCount() { return loaded; },
+  get totalCount() { return total; },
+  get clipCount() { return Object.keys(clips).length; },
+  get zombieLoaded() { return !!zombie; },
+  get currentFile() { return currentFile; },
+  get currentAction() { return activeAction ? activeAction.getClip().name : null; },
+  get mixerTime() { return mixer ? mixer.time : 0; },
+  play: playClip,
+  get sceneChildren() { return scene.children.map((c) => c.type + ':' + (c.name || '')); },
+  zombieInfo() {
+    if (!zombie) return null;
+    const bb = new THREE.Box3().setFromObject(zombie);
+    let meshes = 0, verts = 0;
+    zombie.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) { meshes++; verts += o.geometry.attributes.position.count; } });
+    return {
+      pos: zombie.position.toArray(), scale: zombie.scale.toArray(),
+      bboxMin: bb.min.toArray(), bboxMax: bb.max.toArray(),
+      meshes, verts, visible: zombie.visible,
+    };
+  },
+};
+</script>
+</body>
+</html>
