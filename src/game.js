@@ -19,8 +19,15 @@ class OutbreakGame {
       joyY: 0,
       joyActive: false
     };
-    // True when this device has a touchscreen (v3.8 mobile layout).
-    this.isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    // True only on a real touch-FIRST device (phone/tablet). A touchscreen
+    // laptop still has a mouse as its primary pointer, so it must NOT get
+    // the mobile layout — check pointer: coarse (plus a mobile UA fallback),
+    // not just touch support. (v3.8 used touch support alone, which wrongly
+    // put the joystick + auto-fullscreen on desktop touchscreen laptops.)
+    const hasTouchCap = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+    const mobileUA = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    this.isTouch = hasTouchCap && (coarsePointer || mobileUA);
 
     this.clock = new THREE.Clock();
     this.fpsTimer = 0;
@@ -338,9 +345,21 @@ class OutbreakGame {
     // ---- Camera drag: drag the game area (right side) to look ----
     // Touches on buttons/joystick never reach the container (separate DOM),
     // so this is only the bare game area. Also feeds mouseNDC so top-down
-    // aiming follows the last touch point.
+    // aiming follows the last touch point, and moves the crosshair with the
+    // finger in TOP_DOWN (like the desktop mouse does).
     let camId = null;
     let lastX = 0, lastY = 0;
+    const crosshairEl = document.getElementById('custom-crosshair');
+    const moveCrosshair = (x, y) => {
+      if (!crosshairEl) return;
+      if (this.cameraModes[this.cameraModeIndex] === 'TOP_DOWN') {
+        crosshairEl.style.left = x + 'px';
+        crosshairEl.style.top = y + 'px';
+      } else {
+        crosshairEl.style.left = '50%';
+        crosshairEl.style.top = '50%';
+      }
+    };
     const onCamStart = (e) => {
       const t = e.changedTouches[0];
       camId = t.identifier;
@@ -349,6 +368,7 @@ class OutbreakGame {
       input.mouseScreen.y = t.clientY;
       input.mouseNDC.x = (t.clientX / window.innerWidth) * 2 - 1;
       input.mouseNDC.y = -(t.clientY / window.innerHeight) * 2 + 1;
+      moveCrosshair(t.clientX, t.clientY);
     };
     const onCamMove = (e) => {
       for (const t of e.changedTouches) {
@@ -361,6 +381,7 @@ class OutbreakGame {
         input.mouseScreen.y = t.clientY;
         input.mouseNDC.x = (t.clientX / window.innerWidth) * 2 - 1;
         input.mouseNDC.y = -(t.clientY / window.innerHeight) * 2 + 1;
+        moveCrosshair(t.clientX, t.clientY);
         if (this.cameraModes[this.cameraModeIndex] !== 'TOP_DOWN' && !this.isPaused) {
           const sens = 0.0022 * input.sensitivity * 2.2; // touch needs a bigger gain than a mouse
           this.cameraYaw -= dx * sens;
@@ -451,16 +472,31 @@ class OutbreakGame {
   // --- Fullscreen (mobile) ---
   // Browsers only allow fullscreen from a user gesture, so we request it on
   // the first tap and also offer the fullscreen button to toggle it back.
+  // On entering fullscreen we also try to lock landscape (Android Chrome
+  // only — iOS Safari does not support it; wrapped so it never breaks).
   toggleFullscreen() {
     try {
       if (document.fullscreenElement) {
         if (document.exitFullscreen) document.exitFullscreen();
       } else {
         const el = document.documentElement;
-        if (el.requestFullscreen) el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        const p = el.requestFullscreen ? el.requestFullscreen()
+          : (el.webkitRequestFullscreen ? el.webkitRequestFullscreen() : null);
+        if (p && p.then) {
+          p.then(() => { this.lockLandscape(); }).catch(() => {});
+        } else {
+          this.lockLandscape();
+        }
       }
     } catch (_) { /* fullscreen unavailable — the game still fills the viewport */ }
+  }
+
+  lockLandscape() {
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch (_) { /* orientation lock unsupported — user rotates manually */ }
   }
 
   cycleCameraMode() {
