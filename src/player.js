@@ -2264,8 +2264,14 @@ class PlayerOperator {
           const targetMoveAngle = Math.atan2(this.moveDir.x, this.moveDir.z);
           const diff = THREE.MathUtils.euclideanModulo(targetMoveAngle - this.mesh.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
           this.mesh.rotation.y += diff * Math.min(1, 14.0 * delta);
+        } else {
+          // NOT moving, NOT firing: face the camera / crosshair direction.
+          // So when the player drags to look around, Leon turns with the
+          // camera and the gun points where the cursor points (PUBG-style),
+          // instead of the gun and the cursor pointing different ways.
+          const diff = THREE.MathUtils.euclideanModulo(camAimAngle - this.mesh.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
+          this.mesh.rotation.y += diff * Math.min(1, 10.0 * delta);
         }
-        // When NOT firing and NOT moving: player stays facing wherever he was last looking!
       }
     }
   }

@@ -38,8 +38,10 @@ class CityEnvironment {
     const moonLight = new THREE.DirectionalLight(0x5588cc, 1.2);
     moonLight.position.set(25, 40, 20);
     moonLight.castShadow = true;
-    moonLight.shadow.mapSize.width = 2048;
-    moonLight.shadow.mapSize.height = 2048;
+    // PERFORMANCE: shadow map was 2048 (4M pixels, re-rendered every frame).
+    // 1024 is plenty for a 64m arena and 4x cheaper — a big FPS win.
+    moonLight.shadow.mapSize.width = 1024;
+    moonLight.shadow.mapSize.height = 1024;
     moonLight.shadow.camera.near = 0.5;
     moonLight.shadow.camera.far = 100;
     const d = 30;
