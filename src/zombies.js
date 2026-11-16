@@ -180,6 +180,44 @@ const ZOMBIE_CLIPS = {
   jump: 'jump.fbx'
 };
 
+// v3.24 — EXTERNAL WebP TEXTURES. The character FBX files no longer
+// embed textures (that was 25+ MB of the 32 MB character download — each
+// FBX carried 1024^2 JPEGs/PNGs, some duplicated 3-4x). The diffuse +
+// normal maps live as WebP in assets/zombies/fbx/tex/ and are loaded
+// alongside the FBX, assigned to the materials BY NAME. Only diffuse +
+// normal are externalized: specular/glossiness maps have no visual
+// effect (the matte traverse zeroes specular + shininess) and the
+// skeleton's glow map is dead (emissive is forced black). Textures are
+// 1024px, WebP quality 88 — NOT downscaled to 512 (user vetoed that).
+// A template counts as loaded ONLY once its textures are assigned.
+// Material -> { map, normalMap } (normalMap omitted where the model has
+// no normal map — the Revenant's skin is diffuse-only).
+const ZOMBIE_TEX = {
+  walker: {
+    'RevenantMat': { map: 'revenant_diffuse.webp' }
+  },
+  prisoner: {
+    'Prisoner_material': { map: 'prisoner_diffuse.webp', normalMap: 'prisoner_normal.webp' }
+  },
+  zombiegirl: {
+    'ZombieGirl_body_Material': { map: 'zombiegirl_body_diffuse.webp', normalMap: 'zombiegirl_normal.webp' },
+    'ZombieGirl_Material': { map: 'zombiegirl_diffuse.webp', normalMap: 'zombiegirl_normal.webp' },
+    'ZombieGirl_Material.001': { map: 'zombiegirl_diffuse.webp', normalMap: 'zombiegirl_normal.webp' }
+  },
+  parasite: {
+    'parasitezombie_Material': { map: 'parasite_diffuse.webp', normalMap: 'parasite_normal.webp' },
+    'parasitezombie_Material1': { map: 'parasite_body_diffuse.webp', normalMap: 'parasite_normal.webp' }
+  },
+  skeleton: {
+    'skeletonZombie_Material': { map: 'skeleton_diffuse.webp', normalMap: 'skeleton_normal.webp' },
+    'skeletonZombie_Material1': { map: 'skeleton_body_diffuse.webp', normalMap: 'skeleton_normal.webp' }
+  },
+  romero: {
+    'Ch10_body': { map: 'romero_1001_diffuse.webp', normalMap: 'romero_1001_normal.webp' },
+    'Ch10_body1': { map: 'romero_1002_diffuse.webp', normalMap: 'romero_1002_normal.webp' }
+  }
+};
+
 // v3.22 — LAZY LOAD: wave-1 types/clips load at match start (menu
 // START); the rest stream in during wave 1, AFTER gameplayStart fires,
 // so they never count toward the CrazyGames initial download. Wave 1
@@ -1099,6 +1137,52 @@ class ZombieManager {
     for (const k of typeKeys) this._warmQueue.push(k);
   }
 
+  // v3.24 — load a character's external WebP textures (ZOMBIE_TEX) and
+  // assign them to its materials by name. The template counts as loaded
+  // only once its textures are assigned (onDone fires after that), so a
+  // template with a missing texture is never treated as ready. A texture
+  // that fails to load logs an error and the zombie renders untextured
+  // rather than deadlocking the load — doneOne still fires.
+  // FLIP: THREE.TextureLoader defaults flipY=true; the embedded FBX
+  // textures rendered correctly as-is. If a zombie renders with a
+  // flipped/scrambled skin, set tex.flipY = false here and re-verify.
+  _assignZombieTextures(key, fbxObj, onDone) {
+    const spec = ZOMBIE_TEX[key] || {};
+    const urls = new Set();
+    for (const s of Object.values(spec)) {
+      if (s.map) urls.add(s.map);
+      if (s.normalMap) urls.add(s.normalMap);
+    }
+    if (urls.size === 0) { onDone(); return; }
+    const texLoader = new THREE.TextureLoader();
+    const loaded = {};
+    let remaining = urls.size;
+    const finish = () => {
+      fbxObj.traverse((o) => {
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            const s = spec[m.name];
+            if (!s) continue;
+            if (s.map && loaded[s.map]) m.map = loaded[s.map];
+            if (s.normalMap && loaded[s.normalMap]) m.normalMap = loaded[s.normalMap];
+            m.needsUpdate = true;
+          }
+        }
+      });
+      onDone();
+    };
+    for (const u of urls) {
+      texLoader.load('assets/zombies/fbx/tex/' + u, (tex) => {
+        loaded[u] = tex;
+        if (--remaining === 0) finish();
+      }, undefined, (err) => {
+        console.error('[Zombies] Failed to load texture', u, err);
+        if (--remaining === 0) finish();
+      });
+    }
+  }
+
   // v3.22 — generic loader for one set (wave-1 or deferred). onDone runs
   // when every file in the set has loaded (or failed).
   _loadSet(typeKeys, clipNames, onDone) {
@@ -1145,8 +1229,10 @@ class ZombieManager {
             }
           }
         });
-        this.templates[key] = fbxObj;
-        doneOne();
+        this._assignZombieTextures(key, fbxObj, () => {
+          this.templates[key] = fbxObj;
+          doneOne();
+        });
       }, undefined, (err) => {
         console.error('[Zombies] Failed to load', ZOMBIE_TYPES[key].file, err);
         doneOne();
