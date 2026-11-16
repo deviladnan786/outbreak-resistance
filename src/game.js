@@ -29,6 +29,16 @@ class OutbreakGame {
     const mobileUA = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     this.isTouch = hasTouchCap && (coarsePointer || mobileUA);
 
+    // v3.23 — GRAPHICS QUALITY (Low / Medium / High + auto-detect).
+    // Resolved BEFORE initThree() so the renderer is created with the
+    // right antialias/pixelRatio/shadows from the start. Persisted in
+    // localStorage ('outbreak_quality': 'auto' | 'low' | 'medium' |
+    // 'high'). Auto-detect: Low on touch/mobile or weak hardware
+    // (<=4 CPU cores or <=4 GB RAM), else Medium.
+    this._qualitySetting = 'auto';
+    try { this._qualitySetting = localStorage.getItem('outbreak_quality') || 'auto'; } catch (e) {}
+    this.quality = this._resolveQuality(this._qualitySetting);
+
     this.clock = new THREE.Clock();
     this.fpsTimer = 0;
     this.framesCount = 0;
@@ -63,6 +73,10 @@ class OutbreakGame {
 
     this.initThree();
     this.initEnvironment();
+    // v3.23: apply the Quality spec to the moonlight too (Low = no
+    // moonlight shadows, High = 2048 shadow map). initThree already
+    // applied the renderer half.
+    this.applyQuality(this._qualitySetting);
     this.initPlayer();
     this.initZombies();
     this.initInputListeners();
@@ -331,14 +345,93 @@ class OutbreakGame {
     // pixel ratio can be a bit higher without killing FPS: mobile 1.5
     // (sharper than 1, still 2.25x pixels not 4x), desktop capped at 1.5.
     // v3.13 used 1.0 on mobile and it looked blurry — 1.5 is the balance.
-    this.renderer = new THREE.WebGLRenderer({ antialias: !this.isTouch, powerPreference: 'high-performance' });
+    // v3.23: renderer settings come from the Quality spec (see
+    // _qualitySpec) — Low is pixelRatio 1.0, no antialias, no shadows;
+    // Medium is the previous behaviour; High pushes pixelRatio to 2
+    // and the shadow map to 2048. Antialias is fixed at creation, so a
+    // quality change that touches it applies on the next page load
+    // (the Settings UI says so); pixelRatio/shadows apply immediately.
+    const qs = this._qualitySpec(this.quality);
+    this._rendererAA = qs.antialias;
+    this.renderer = new THREE.WebGLRenderer({ antialias: qs.antialias, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(this.isTouch ? 1.5 : Math.min(window.devicePixelRatio, 1.5));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = this.isTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    this.renderer.setPixelRatio(qs.pixelRatio);
+    this.renderer.shadowMap.enabled = qs.shadows;
+    this.renderer.shadowMap.type = qs.shadowType;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.container.appendChild(this.renderer.domElement);
+  }
+
+  // ================================================================
+  // v3.23 — GRAPHICS QUALITY (Low / Medium / High + auto-detect).
+  // Low: pixelRatio 1.0, antialias OFF, moonlight shadows OFF — the
+  // cheapest render, for low-end laptops and phones. Medium: the
+  // previous settings (pixelRatio up to 1.5, antialias on desktop,
+  // shadows on, shadow map 1024). High: pixelRatio up to 2, shadow
+  // map 2048. No geometry, lights or zombie detail is ever removed —
+  // only render cost (resolution, shadows, antialias).
+  // ================================================================
+  _resolveQuality(setting) {
+    if (setting === 'low' || setting === 'medium' || setting === 'high') return setting;
+    // Auto-detect: Low on touch/mobile or weak hardware.
+    const cores = navigator.hardwareConcurrency || 8;
+    const mem = navigator.deviceMemory || 8;
+    if (this.isTouch || cores <= 4 || mem <= 4) return 'low';
+    return 'medium';
+  }
+
+  _qualitySpec(q) {
+    const dpr = window.devicePixelRatio || 1;
+    if (q === 'low') {
+      return { pixelRatio: 1.0, antialias: false, shadows: false, shadowSize: 1024, shadowType: THREE.PCFShadowMap };
+    }
+    if (q === 'high') {
+      return { pixelRatio: Math.min(dpr, 2), antialias: !this.isTouch, shadows: true, shadowSize: 2048, shadowType: this.isTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap };
+    }
+    // medium (default): the previous settings.
+    return { pixelRatio: this.isTouch ? 1.5 : Math.min(dpr, 1.5), antialias: !this.isTouch, shadows: true, shadowSize: 1024, shadowType: this.isTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap };
+  }
+
+  // Apply a quality level. Pixel ratio / shadows / shadow size apply
+  // immediately; antialias is fixed when the renderer is created, so
+  // if the new level wants a different antialias the note in Settings
+  // says it applies after a page reload (the choice is still saved,
+  // so the next load uses it).
+  applyQuality(q) {
+    const setting = (q === 'low' || q === 'medium' || q === 'high' || q === 'auto') ? q : 'auto';
+    this._qualitySetting = setting;
+    try { localStorage.setItem('outbreak_quality', setting); } catch (e) {}
+    this.quality = this._resolveQuality(setting);
+    const spec = this._qualitySpec(this.quality);
+    if (this.renderer) {
+      this.renderer.setPixelRatio(spec.pixelRatio);
+      this.renderer.shadowMap.enabled = spec.shadows;
+      this.renderer.shadowMap.type = spec.shadowType;
+      // Shadow settings only take effect after a material recompile.
+      this.scene.traverse((o) => {
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) m.needsUpdate = true;
+        }
+      });
+    }
+    const ml = this.environment && this.environment.moonLight;
+    if (ml) {
+      ml.castShadow = spec.shadows;
+      if (ml.shadow.mapSize.width !== spec.shadowSize) {
+        ml.shadow.mapSize.set(spec.shadowSize, spec.shadowSize);
+        if (ml.shadow.map) { ml.shadow.map.dispose(); ml.shadow.map = null; }
+      }
+    }
+    // Antialias note (Settings UI).
+    const note = document.getElementById('quality-note');
+    if (note) {
+      note.textContent = (this.renderer && spec.antialias !== this._rendererAA)
+        ? 'Antialiasing changes on the next page reload — everything else applied now.'
+        : '';
+    }
+    return this.quality;
   }
 
   initEnvironment() {
@@ -918,22 +1011,42 @@ class OutbreakGame {
         }
       });
     }
+
+    // v3.23: Graphics Quality select. The choice persists (localStorage)
+    // and applies immediately for pixel ratio / shadows; antialiasing
+    // needs a page reload (the note under the select says so).
+    const qualitySelect = document.getElementById('quality-select');
+    if (qualitySelect) {
+      qualitySelect.value = this._qualitySetting;
+      qualitySelect.addEventListener('change', (e) => {
+        this.applyQuality(e.target.value);
+      });
+    }
   }
 
   toggleSettingsModal(forceState) {
     const modal = document.getElementById('settings-modal');
     if (!modal) return;
+    // v3.23 FIX: modal visibility is decided by the INTENT (open / close
+    // / toggle), not by isPaused. The old code drove visibility from
+    // isPaused AFTER the menu guard forced isPaused=true — so in the
+    // menu the close/resume buttons could never hide the modal: it
+    // stayed open over the screen and the START button was unclickable.
+    // (Found by the v3.23 smoke test: the match never started after the
+    // settings modal was opened and "closed" from the menu.)
+    let show;
     if (forceState !== undefined) {
-      this.isPaused = forceState;
+      show = !!forceState;
     } else {
-      this.isPaused = !this.isPaused;
+      // Toggle: open if currently hidden, close if currently visible.
+      show = modal.classList.contains('hidden');
     }
     // v3.22: before the match starts (menu), the game stays paused no
-    // matter what the modal buttons do.
-    if (!this._matchStarted) this.isPaused = true;
+    // matter what the modal buttons do — but the modal itself closes.
+    this.isPaused = show ? true : (this._matchStarted ? false : true);
 
-    modal.classList.toggle('hidden', !this.isPaused);
-    if (this.isPaused) {
+    modal.classList.toggle('hidden', !show);
+    if (show) {
       this.input.mouseLeftHeld = false;
       this.input.mouseRightHeld = false;
       if (document.exitPointerLock) document.exitPointerLock();

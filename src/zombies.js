@@ -244,7 +244,6 @@ class Zombie {
     this.stateT = 0;
     this.damageDealt = false;
     this.attackCooldown = 0; // seconds before this zombie may swing again
-    this.flash = 0;
     this.deathT = 0;
     // v3.18 — 70% ZONE DAMAGE: hits to the upper body (shoulder) and the
     // stomach/groin accumulate separately. When a zone has taken 70% of
@@ -255,6 +254,11 @@ class Zombie {
     this.nextUpperFallAt = 0.7 * this.maxHp;
     this.nextGroinFallAt = 0.7 * this.maxHp;
     this._hitAlt = 0; // alternates hit_reaction / cfg.hit so hits vary
+    // v3.23 — HP-GATED FLINCH: the normal body-hit reaction only plays
+    // when HP crosses 75%/50%/25% of max — otherwise the zombie takes
+    // the damage and keeps walking (no hit animation, no stun).
+    // Headshots and zone falls are NOT gated (separate triggers).
+    this._nextFlinchAt = 0.75;
 
     // Clone the template character. NOTE: plain scene.clone() SHARES the
     // skeleton with the template in three r128 (SkinnedMesh.copy just
@@ -281,7 +285,7 @@ class Zombie {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
-        // Clone materials per instance so the hit flash is per-zombie.
+        // Clone materials per instance so the death fade is per-zombie.
         // A mesh may carry an ARRAY of materials (multi-material FBX) —
         // clone each entry, not the array itself.
         if (Array.isArray(o.material)) {
@@ -337,22 +341,6 @@ class Zombie {
     this.scene.add(this._hpSprite);
     this._drawHpBar();
 
-    // GROUND RING: a bright flat ring on the floor under the zombie, so its
-    // position is unmistakable from ANY angle — especially top-down, where
-    // a dark zombie on dark asphalt is nearly invisible and only its
-    // health bar shows, which reads as a "floating bar with no zombie".
-    // The ring is a plain (non-skinned) mesh, counter-scaled like the
-    // hitbox/bar. It fades out with the corpse when the zombie dies.
-    const ringGeo = new THREE.RingGeometry(0.45, 0.62, 24);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
-    this._groundRing = new THREE.Mesh(ringGeo, ringMat);
-    this._groundRing.rotation.x = -Math.PI / 2;
-    // v3.22: ring radius scales with the body (boss: 0.45–0.62m × 1.32 =
-    // 0.59–0.82m, matching his bigger footprint).
-    this._groundRing.scale.set(invS * bodyScale, invS * bodyScale, invS);
-    this._groundRing.position.set(0, 0.06 * invS, 0);
-    this.scene.add(this._groundRing);
-
     manager.scene.add(this.scene);
 
     // Animation mixer on the clone; clips are the FBX-loaded clips shared
@@ -398,20 +386,22 @@ class Zombie {
     this._enrageCooldown = 0;
     this._tmpVel = new THREE.Vector3();
     this._tmpDir = new THREE.Vector3();
-    // v3.22c — FEET-DIP FIX (boss only): the walk clip sinks the feet
-    // ~0.18m below the ground for the whole stride (measured in the
-    // isolated test), and the jump crouch sinks the waist cloth. The
-    // runtime ground clamp in update() lifts the scene just enough
-    // that the lowest foot/toe bone clears the ground. Collect the
-    // foot/toe bones once here (mixamorigLeftFoot/RightFoot, ToeBase,
-    // Toe_End). If none are found the clamp is inert.
+    // v3.22c — FEET-DIP FIX (v3.23: ALL zombies): the boss's walk clip
+    // sinks the feet ~0.18m below the ground, and the walker's retargeted
+    // hit-reaction clip (hit_reaction_revenant) sinks his feet ~0.89m —
+    // its Hips Y track holds the hips at ~0.16m (the retarget copied the
+    // source offset as an absolute height, missing the ~1m rest height),
+    // so a shot body-slams him halfway into the floor. The runtime
+    // ground clamp in update() lifts the scene just enough that the
+    // lowest foot/toe bone clears the ground. Collect the foot/toe
+    // bones once here (mixamorigLeftFoot/RightFoot, ToeBase, Toe_End).
+    // If none are found the clamp is inert. The clamp is a no-op for
+    // clips whose feet are already on the ground (lift = 0).
     this._groundBones = [];
     this._tmpClampV = new THREE.Vector3();
-    if (this.typeKey === 'skeleton') {
-      this.scene.traverse((o) => {
-        if (o.isBone && /foot|toe/i.test(o.name)) this._groundBones.push(o);
-      });
-    }
+    this.scene.traverse((o) => {
+      if (o.isBone && /foot|toe/i.test(o.name)) this._groundBones.push(o);
+    });
   }
 
   // Current chase clip + speed: crawl clip at 40% speed once crippled.
@@ -575,14 +565,11 @@ class Zombie {
     if (!this.alive || this.state === 'dying') return;
     this.hp -= amount;
     this._drawHpBar();
-    this.flash = 0.3;
-    this.setFlash(true);
     const isWalker = this.typeKey === 'walker';
     if (this.hp <= 0) {
       this.state = 'dying';
-      // Hide the health bar + ground ring on death (both branches below).
+      // Hide the health bar on death.
       this._hpSprite.visible = false;
-      if (this._groundRing) this._groundRing.visible = false;
       const wasCrawling = this.crawling;
       // DEATH DURATION = the full clip length, so the whole death animation
       // plays (the zombie falls and lies on the ground) + a short linger,
@@ -652,8 +639,6 @@ class Zombie {
     // every hit. The walker uses his own retargeted clips (shared clips
     // collapse him). relY is the hit height above the zombie's feet
     // (default 1.2 = chest when the caller has no ray hit point, e.g. melee).
-    this.state = 'hit';
-    this.stateT = 0.4;
     const relY = (hitY !== undefined && hitY !== null) ? hitY - this.scene.position.y : 1.2;
     const headClip = isWalker ? 'head_hit_revenant' : 'head_hit';
     const reactClip = isWalker ? 'hit_reaction_revenant' : 'hit_reaction';
@@ -661,6 +646,9 @@ class Zombie {
     // upper 1.32–1.98m, groin 0.66–1.32m — his real proportions).
     if (relY > this.headshotY) {
       // HEAD: the 'head_hit' reaction (hands to the head, staggers back).
+      // NOT HP-gated — a headshot always flinches.
+      this.state = 'hit';
+      this.stateT = 0.4;
       if (this.actions[headClip]) this.playClip(headClip, 0.06);
       else this.playClip(this.cfg.hit, 0.06);
       return;
@@ -681,14 +669,27 @@ class Zombie {
         if (this.startZoneFall('groin')) return;
       }
     }
-    // PLAIN BODY HIT: alternate 'hit_reaction' and the type's own hit
-    // clip so two hits in a row never look identical.
-    this._hitAlt++;
-    if (this._hitAlt % 2 === 1 && this.actions[reactClip]) {
-      this.playClip(reactClip, 0.06);
-    } else {
-      this.playClip(this.cfg.hit, 0.06);
+    // PLAIN BODY HIT — HP-GATED (v3.23): the normal hit reaction only
+    // plays when the zombie's HP crosses 75%/50%/25% of max. Otherwise
+    // it takes the damage and KEEPS WALKING (no hit animation, no stun),
+    // so a zombie being sprayed doesn't stop on every bullet. One shot
+    // that crosses two thresholds still only flinches once (the next
+    // threshold advances past both). Alternate 'hit_reaction' and the
+    // type's own hit clip so two flinches in a row never look identical.
+    const frac = this.hp / this.maxHp;
+    if (this._nextFlinchAt > 0 && frac < this._nextFlinchAt) {
+      const below = [0.75, 0.5, 0.25].filter((t) => t < frac);
+      this._nextFlinchAt = below.length ? Math.max(...below) : 0;
+      this.state = 'hit';
+      this.stateT = 0.4;
+      this._hitAlt++;
+      if (this._hitAlt % 2 === 1 && this.actions[reactClip]) {
+        this.playClip(reactClip, 0.06);
+      } else {
+        this.playClip(this.cfg.hit, 0.06);
+      }
     }
+    // else: no reaction, no stun — the zombie keeps walking.
   }
 
   // Redraw the health bar sprite. Green > 50%, yellow 25-50%, red < 25%.
@@ -704,24 +705,6 @@ class Zombie {
     this._hpTex.needsUpdate = true;
   }
 
-  setFlash(on) {
-    this.scene.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) {
-        if (!m.emissive) continue;
-        if (on) {
-          m.emissive.setHex(0xff2222);
-          m.emissiveIntensity = 1.6;
-        } else {
-          // Restore the base emissive (black = original colours, no lift).
-          m.emissive.setHex(ZOMBIE_BASE_EMISSIVE);
-          m.emissiveIntensity = 1.0;
-        }
-      }
-    });
-  }
-
   update(dt, player, zombies, environment) {
     if (!this.alive) return false;
     this.mixer.update(dt);
@@ -735,18 +718,18 @@ class Zombie {
     this.scene.rotation.x = 0;
     this.scene.rotation.z = 0;
 
-    // FEET-DIP FIX (v3.22c, boss only): after the mixer updates, lift
-    // the scene just enough that the lowest foot/toe bone clears the
-    // ground. The sole sits ~0.02m below the lowest foot bone
+    // FEET-DIP FIX (v3.22c boss, v3.23 all zombies): after the mixer
+    // updates, lift the scene just enough that the lowest foot/toe bone
+    // clears the ground. The sole sits ~0.02m below the lowest foot bone
     // (measured: walk offset 0.008–0.017m), so the lift is
     // max(0, 0.02 - minFootY). Recomputed every frame, so it returns
     // to 0 when the feet are already up (jump peak) and never floats
     // the feet. Runs before every state branch, so it covers chase,
-    // attack, dying, zonefall, kip-up, roar and the enrage jump. The
-    // hitbox/bar lift WITH the body (they are scene children, and the
-    // hit thresholds are relative to scene.position.y, so they stay
-    // aligned); the ground ring is countered so it stays on the floor.
-    if (this.typeKey === 'skeleton' && this._groundBones.length > 0) {
+    // attack, hit reactions, dying, zonefall, kip-up, roar and the
+    // enrage jump. The hitbox/bar lift WITH the body (they are scene
+    // children, and the hit thresholds are relative to scene.position.y,
+    // so they stay aligned).
+    if (this._groundBones.length > 0) {
       let minFootY = Infinity;
       for (let i = 0; i < this._groundBones.length; i++) {
         this._groundBones[i].getWorldPosition(this._tmpClampV);
@@ -755,17 +738,10 @@ class Zombie {
       }
       const lift = Math.max(0, 0.02 - minFootY);
       this.scene.position.y = lift;
-      if (this._groundRing) this._groundRing.position.y = (0.06 - lift) * this._invScale;
     }
 
     // Attack cooldown ticks down so swings have a readable gap.
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
-
-    // Hit flash decay
-    if (this.flash > 0) {
-      this.flash -= dt;
-      if (this.flash <= 0) this.setFlash(false);
-    }
 
     if (this.state === 'dying') {
       this.deathT -= dt;

@@ -36,6 +36,9 @@ class CityEnvironment {
 
     // Directional moonlight with soft shadows
     const moonLight = new THREE.DirectionalLight(0x5588cc, 1.2);
+    // v3.23: keep a handle so the Quality setting can toggle the
+    // moonlight shadows (Low = off) and change the shadow map size.
+    this.moonLight = moonLight;
     moonLight.position.set(25, 40, 20);
     moonLight.castShadow = true;
     // PERFORMANCE: shadow map was 2048 (4M pixels, re-rendered every frame).
